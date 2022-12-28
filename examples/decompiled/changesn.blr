@@ -1,0 +1,101 @@
+Menu
+    Write,Write,0,F4
+EndMenu
+
+Window(caption="";width=300;height=120;align=h)
+{
+    Label(caption="%bold=1%fcolor=$0000ff%size=10%fname=Tahoma%Please disconnect all adapters from iProg+!";name=0;left=10;top=10;width=0;value=0)
+    Digit(caption="Serial number:";name=dig_sn;left=120;top=30;width=100;value=1)
+    Digit(caption="Pasword:";name=dig_pass;left=120;top=55;width=100;value=0)
+    Button(caption="Change SN";left=100;top=80;width=120;height=25;proc=Write)
+}
+
+$HOST
+
+dword d246;
+word d24a;
+
+proc proc0()
+{
+	var a;
+	d24a = 0x318D;
+	for (a = 0; a < 16; a++)
+	{
+		if (d246 & 1)
+		{
+			d24a *= 2;
+		}
+		else
+		{
+			d24a = 2 * d24a ^ 0x8021;
+		}
+		d246 = d246 >> 1;
+	}
+}
+
+proc proc1()
+{
+	var a;
+	for (a = 0; a < 65536; a++)
+	{
+		d246 = a;
+		proc0();
+		if (d24a = dig_sn)
+		{
+			a &= 0xFFFF;
+			d246 = a ^ 4660;
+			d246 = d246 << 16 ^ a;
+			return;
+		}
+
+	}
+}
+
+proc Write()
+{
+	var tmp, sn;
+	if (WINDOW = 0) SHOWWINDOW;
+	sn = DEVICE_SERIAL;
+	print("\nCurrent SN:"+#i.sn);
+	device.getSN();
+	sn = device.sn;
+	print("\nFlash ID:"+#h4.sn);
+	tmp = mbox("Are You sure, continue?", 1);
+	if (tmp = 0)
+	{
+		print("\nAborted by user");
+	}
+	else
+	{
+		print("\nPlease wait...");
+		print("\nStep 1...");
+		proc1();
+		print("\nStep 2...");
+		device.sn = d246;
+		sn = device.sn;
+		tmp = d246 ^ sn;
+		device.we = dig_pass ^ tmp;
+		device.sn = d246 ^ tmp;
+		print("\nPlease reconnect device after 10 sec.");
+		device.setSN();
+		sn = device.sn;
+	}
+}
+
+$DEVICE
+
+dword sn;
+dword we;
+
+proc setSN()
+{
+	WRITE_ENABLE = we;
+	SERIAL = sn;
+}
+
+proc getSN()
+{
+	sn = SERIAL;
+}
+
+

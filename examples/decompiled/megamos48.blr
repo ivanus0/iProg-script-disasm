@@ -1,0 +1,1108 @@
+Editor
+{
+ (Caption="EEPROM";size=4096;mode=8;bytes=16)
+}
+
+Window(caption="";width=800;height=510;align=h)
+{
+    Label(caption="Word"; name=label_0000; left=34; top=40; width=0; value=0)
+    Label(caption="Crypt Key"; name=label_0001; left=74; top=40; width=0; value=0)
+    Hexbytes(caption="9   "; name=hbWord9; left=75; top=70; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0002; left=127; top=70; width=0; value=0)
+    Button(caption="Write"; left=150; top=70; width=50; height=21; proc=writeWord9)
+    Hexbytes(caption="8   "; name=hbWord8; left=75; top=110; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0003; left=127; top=110; width=0; value=0)
+    Button(caption="Write"; left=150; top=110; width=50; height=21; proc=writeWord8)
+    Hexbytes(caption="7   "; name=hbWord7; left=75; top=150; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0004; left=127; top=150; width=0; value=0)
+    Button(caption="Write"; left=150; top=150; width=50; height=21; proc=writeWord7)
+    Hexbytes(caption="6   "; name=hbWord6; left=75; top=190; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0005; left=127; top=190; width=0; value=0)
+    Button(caption="Write"; left=150; top=190; width=50; height=21; proc=writeWord6)
+    Hexbytes(caption="5   "; name=hbWord5; left=75; top=230; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0006; left=127; top=230; width=0; value=0)
+    Button(caption="Write"; left=150; top=230; width=50; height=21; proc=writeWord5)
+    Hexbytes(caption="4   "; name=hbWord4; left=75; top=270; width=49; value=2; items="00 00")
+    Label(caption=" ..... "; name=label_0007; left=127; top=270; width=0; value=0)
+    Button(caption="Write"; left=150; top=270; width=50; height=21; proc=writeWord4)
+    Label(caption="Word"; name=label_0008; left=240; top=40; width=0; value=0)
+    Label(caption="ID"; name=label_0009; left=280; top=40; width=0; value=0)
+    Hexbytes(caption="3..2   "; name=hbBlock32; left=280; top=70; width=97; value=4; items="00 00 00 00")
+    Button(caption="Read"; left=383; top=70; width=50; height=21; proc=ReadID)
+	
+    Label(caption="Word"; name=label_000A; left=240; top=120; width=0; value=0)
+    Label(caption="UM"; name=label_000B; left=280; top=120; width=0; value=0)
+    Hexbytes(caption="1..0   "; name=hbBlock10; left=280; top=150; width=97; value=4; items="00 00 00 00")
+    Button(caption="Read"; left=383; top=150; width=50; height=21; proc=readBlock10)
+    Label(caption=" ..... "; name=label_000C; left=436; top=150; width=0; value=0)
+    Button(caption="Write"; left=460; top=150; width=50; height=21; proc=writeBlock10)
+
+    Label(caption="Bits"; name=label_000D; left=287; top=185; width=0; value=0)
+    Label(caption="Lock Bits"; name=label_000E; left=317; top=185; width=0; value=0)
+	
+    Label(caption="  31"; name=label_000F; left=285; top=203; width=0; value=0)
+    Label(caption="  30"; name=label_0010; left=285; top=223; width=0; value=0)
+    Checkbox(caption="LB1"; name=cbLB1; left=315; top=205; value=0)
+    Checkbox(caption="LB0"; name=cbLB0; left=315; top=225; value=0)
+    Label(caption=" ................... "; name=label_0011; left=377; top=215; width=0; value=0)
+    Button(caption="Write"; left=443; top=215; width=50; height=21; proc=writeLockBits)
+	
+    Label(caption="User Mem."; name=label_0012; left=317; top=250; width=0; value=0)
+    Hexbytes(caption="29..0   "; name=hbUserMem; left=317; top=270; width=97; value=4; items="00 00 00 00")
+    Label(caption=" ..... "; name=label_0013; left=418; top=270; width=0; value=0)
+    Button(caption="Write"; left=442; top=270; width=50; height=21; proc=writeUserMem)
+}
+$HOST
+
+emem eeprom=0,mismatch=2;
+
+proc debug(){
+	var a, i, n;
+	a = device.dbg_timer;
+	print("\nDBG_TIMER: " + #i.a);
+	n = device.dbg_n;
+	print("\nDBG_N: " + #i.n);
+	print("\n");
+	for(i = 0; i != n ;i++){
+		a = device.dbgu[i];
+		print("" + #i.a + " ");
+		if (i & 0xF = 0xF)
+			print("\n");
+	}
+	print("\n");
+}
+
+proc AUTH(){
+	var a;
+	print("\n Check adapter... ");
+	device.pwr(3);
+	delay(50);
+	a = device.InitHTRC();
+	delay(50);
+	if(a = 1){
+		print("not ready.");
+		device.pwr(0);
+		return(0);
+	}
+	print("OK.");
+	
+	a = device.Ast_Adjust(0x3F);
+	
+	for(a = 0; a < 144; a++) eeprom[a] = 0xFF;   // содержимое редактора = 0xFF
+	
+	a = device.Restart_Transponder();
+	
+	return(1);
+}
+
+///////////////// Crypt Key //////////////////
+
+proc writeWord9()
+{
+	var a;
+	a = AUTH();
+	if (a = 0) return;
+
+	device.InitFastTimer();	
+	print("\n write Word 9(Crypt Key)..");
+	
+	hbWord9.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(9, hbWord9[0], hbWord9[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord9.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+
+proc writeWord8()
+{
+	var a;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Word 8(Crypt Key)..");
+	
+	hbWord8.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(8, hbWord8[0], hbWord8[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord8.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+proc writeWord7()
+{
+	var a;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Word 7(Crypt Key)..");
+	
+	hbWord7.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(7, hbWord7[0], hbWord7[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord7.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+proc writeWord6()
+{
+	var a;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Word 6(Crypt Key)..");
+	
+	hbWord6.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(6, hbWord6[0], hbWord6[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord6.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+proc writeWord5()
+{
+	var a;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Word 5(Crypt Key)..");
+	
+	hbWord5.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(5, hbWord5[0], hbWord5[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord5.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+proc writeWord4()
+{
+	var a;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Word 4(Crypt Key)..");
+	
+	hbWord4.color = 0xFFFFFF;
+	
+	//print("\n	write data..");
+	a = device.WriteWord(4, hbWord4[0], hbWord4[1]);
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbWord4.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+}
+
+///////////////// ID //////////////////
+
+proc ReadID()
+{
+	var a, t;
+	
+	a = AUTH(); if(a = 0){ return; }
+	device.InitFastTimer();
+	
+	print("\n    read ID..");
+	hbBlock32.color = 0xFFFFFF;
+	hbBlock32[0] = 0xFF;
+	hbBlock32[1] = 0xFF;
+	hbBlock32[2] = 0xFF;
+	hbBlock32[3] = 0xFF;
+		
+	a = device.ReadBlock(1);
+	if(a = 0)
+	{
+		print("Error!");
+		hbBlock32.color = 0x0000FF;
+	}
+	else
+	{
+		t = device.tag_data; print(#h4.t);
+		hbBlock32[0] = ((t >> 24) & 0xFF); 
+		hbBlock32[1] = ((t >> 16) & 0xFF);
+		hbBlock32[2] = ((t >> 8) & 0xFF);
+		hbBlock32[3] = (t & 0xFF);
+	}
+	
+	device.pwr(0);
+}
+
+///////////////// UM //////////////////
+proc RefreshCtrl_Block10(UMBlock)
+{
+	hbBlock10[0] = ((UMBlock >> 24) & 0xFF);
+	hbBlock10[1] = ((UMBlock >> 16) & 0xFF);
+	hbBlock10[2] = ((UMBlock >> 8)  & 0xFF);
+	hbBlock10[3] = (UMBlock & 0xFF);
+}
+
+proc RefreshCtrl_LCKBits(UMBlock)
+{
+	if(UMBlock & 0x80000000)
+	{
+		cbLB1 = 1;
+	}
+	else
+	{
+		cbLB1 = 0;
+	}
+	
+	if(UMBlock & 0x40000000)
+	{
+		cbLB0 = 1;
+	}
+	else
+	{
+		cbLB0 = 0;
+	}
+}
+
+proc RefreshCtrl_UserMem(UMBlock)
+{
+	hbUserMem[0] = ((UMBlock >> 24) & 0x3F);
+	hbUserMem[1] = ((UMBlock >> 16) & 0xFF);
+	hbUserMem[2] = ((UMBlock >> 8)  & 0xFF);
+	hbUserMem[3] = (UMBlock & 0xFF);
+}
+
+proc ResetCtrl_Block10()
+{
+	hbBlock10[0] = 0xFF;
+	hbBlock10[1] = 0xFF;
+	hbBlock10[2] = 0xFF;
+	hbBlock10[3] = 0xFF;
+}
+
+proc ResetCtrl_LCKBits()
+{
+	cbLB1 = 1;
+	cbLB0 = 1;
+}
+
+proc ResetCtrl_UserMem()
+{
+	hbUserMem[0] = 0xFF;
+	hbUserMem[1] = 0xFF;
+	hbUserMem[2] = 0xFF;
+	hbUserMem[3] = 0xFF;
+}
+
+proc readBlock10()
+{
+	var a, t;
+	
+	a = AUTH(); if(a = 0){ return; }
+	device.InitFastTimer();
+	
+	print("\n    read UM.. ");
+	
+	hbBlock10.color = 0xFFFFFF;
+	hbUserMem.color = 0xFFFFFF;
+	ResetCtrl_Block10();
+	ResetCtrl_LCKBits();
+	ResetCtrl_UserMem();
+	
+	a = device.ReadBlock(0);
+	if(a = 0)
+	{
+		print("Error!");
+		hbBlock10.color = 0x0000FF;
+	}
+	else
+	{
+		t = device.tag_data; print(#h4.t);
+		RefreshCtrl_Block10(t);
+		RefreshCtrl_LCKBits(t);
+		RefreshCtrl_UserMem(t);
+	}
+
+	device.pwr(0);
+}
+
+proc writeBlock10()
+{
+	var a, t, error;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write LB1/LB0/UM...");
+	
+	error = 0;
+	
+	hbBlock10.color = 0xFFFFFF;
+	hbUserMem.color = 0xFFFFFF;
+	ResetCtrl_LCKBits();
+	ResetCtrl_UserMem();
+	
+	print("\n	write word 0.. ");
+	a = device.WriteWord(0, hbBlock10[2], hbBlock10[3]);
+	//a = 0;
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbBlock10.color = 0x0000FF;
+		error = 1;
+	}
+	
+	print("\n	write word 1.. ");
+	a = device.WriteWord(1, hbBlock10[0], hbBlock10[1]);
+	//a = 0;
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbBlock10.color = 0x0000FF;
+		error = 1;
+	}
+	//device.pwr(0);
+	//return;
+	
+	if(error = 0)		// не было ошибок? обновляем все поля
+	{
+		print("\n	update.. ");
+		ResetCtrl_Block10();
+		ResetCtrl_LCKBits();
+		ResetCtrl_UserMem();
+		a = device.ReadBlock(0);
+		//a = 0;
+		if(a = 1)
+		{
+			print("OK.");
+			t = device.tag_data;// print(#h4.t);
+			RefreshCtrl_Block10(t);
+			RefreshCtrl_LCKBits(t);
+			RefreshCtrl_UserMem(t);
+		}
+		else
+		{
+			print("Error!");
+			hbBlock10.color = 0x0000FF;
+			hbUserMem.color = 0x0000FF;
+		}
+	}
+	//debug_out();
+	device.pwr(0);
+}
+
+proc writeLockBits()
+{
+	var a, t, th, tl, error;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write Lock Bits...");
+	
+	error = 0;
+	
+	print("\n	read UM..");
+	hbBlock10.color = 0xFFFFFF;
+	hbUserMem.color = 0xFFFFFF;
+	ResetCtrl_Block10();
+	ResetCtrl_UserMem();
+	
+	a = device.ReadBlock(0);
+	//a = 0;
+	if(a = 1)
+	{
+		//print("OK.");
+		t = device.tag_data; print(#h4.t);
+		t = (t >> 16) & 0x3FFF;
+		//t = t | 0x8000;
+		
+		if(cbLB1 = 1){ t = t | 0x8000; }
+		if(cbLB0 = 1){ t = t | 0x4000; }
+		th = (t >> 8) & 0xFF;
+		tl = t & 0xFF;
+		print("\n	write word 0..");
+		a = device.WriteWord(1, th , tl);
+		if(a = 1)
+		{
+			print("OK.");
+			print("\n	read UM..");
+	
+			a = device.ReadBlock(0);
+			if(a = 1)
+			{
+				t = device.tag_data; print(#h4.t);
+				hbBlock10.color = 0xFFFFFF;
+				hbUserMem.color = 0xFFFFFF;
+				RefreshCtrl_Block10(t);
+				RefreshCtrl_LCKBits(t);
+				RefreshCtrl_UserMem(t);
+			}
+			else
+			{
+				print("Error!");
+			}
+		}
+		else
+		{
+			print("Error!");
+		}
+	}
+	else
+	{
+		print("Error!");
+		hbBlock10.color = 0x0000FF;
+		hbUserMem.color = 0x0000FF;
+	}
+	
+	device.pwr(0);
+	
+	//debug_out();
+}
+
+proc writeUserMem()
+{
+	var a, t, error;
+	
+	a = AUTH(); if(a = 0){ return; }
+	
+	device.InitFastTimer();
+	print("\n write User Mem...");
+	
+	error = 0;
+	
+	hbBlock10.color = 0xFFFFFF;
+	hbUserMem.color = 0xFFFFFF;
+	ResetCtrl_Block10();
+	ResetCtrl_LCKBits();
+	
+	print("\n	write word 0.. ");
+	a = device.WriteWord(0, hbUserMem[2], hbUserMem[3]);
+	//a = 0;
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbUserMem.color = 0x0000FF;
+		error = 1;
+	}
+	
+	
+	print("\n	write word 1.. ");
+	t = (hbUserMem[0] & 0x3F) | 0x80;
+	a = device.WriteWord(1, t, hbUserMem[1]);
+	//a = 0;
+	if(a = 1)
+	{
+		print("OK.");
+	}
+	else
+	{
+		print("Error!");
+		hbUserMem.color = 0x0000FF;
+		error = 1;
+	}
+	//device.pwr(0);
+	//return;
+	
+	if(error = 0)		// не было ошибок? обновляем все поля
+	{
+		print("\n	update.. ");
+		ResetCtrl_Block10();
+		ResetCtrl_LCKBits();
+		ResetCtrl_UserMem();
+		a = device.ReadBlock(0);
+		//a = 0;
+		if(a = 1)
+		{
+			print("OK.");
+			t = device.tag_data;// print(#h4.t);
+			RefreshCtrl_Block10(t);
+			RefreshCtrl_LCKBits(t);
+			RefreshCtrl_UserMem(t);
+		}
+		else
+		{
+			print("Error!");
+			hbBlock10.color = 0x0000FF;
+			hbUserMem.color = 0x0000FF;
+		}
+	}
+	//debug_out();
+	device.pwr(0);
+	//debug_out();
+}
+
+$DEVICE
+
+#define DIN_H   PORTB |= (1<<5)
+#define DIN_L   PORTB &= ((1<<5)^255)
+#define SCLK_H  PORTB |= (1<<6)
+#define SCLK_L  PORTB &= ((1<<6)^255)
+
+#define DOUT_H  (PORTB & (1<<4)) != 0
+#define DOUT_L  (PORTB & (1<<4)) = 0
+#define DOUT_IN (PORTB & (1<<4))
+
+#define SET_CONFIG_PAGE 	0x40
+#define GET_CONFIG_PAGE 	0x04
+#define WRITE_TAG       	0xC0
+#define WRITE_TAG_N     	0x10
+#define	READ_PHASE			0x08
+#define	SET_SAMPLING_TIME	0x80
+
+#define	FST_TMR_PER_T0	48			// Увеличение счетчика FAST_TIMER за время T0, при 
+
+dword dbgu[1000];
+dword dbg_n;
+dword dbg_timer;
+
+dword tag_data;
+byte sData[1000];
+dword sLen;
+byte dec_st;
+
+proc status()
+{
+	return(POWER & 0x01);
+}
+
+//******************************** Megamos48 ************************************//
+
+proc pwr(a)
+{
+    PWM0 = 0;
+    POWER = a;
+    if(a)   PWM0 = (4000000 << 7) | 64;
+}
+
+// отправка команды в трансивер
+proc HTRCCmd(cmd)
+{
+    var i, cnt, mem;
+
+    DIN_L; SCLK_L; SCLK_H; DIN_H; SCLK_L; DIN_L;    // инициализация
+    
+    if((cmd & 0xC0) = 0xC0) cnt = 3;        // если два старших бита команды установлены, то команда трехбитная
+    else cnt = 8;
+
+    mem = cmd & 0xF0;
+
+    for(i = 0 ; i < cnt;i++)
+    {
+        if(cmd & 0x80)    DIN_H;
+        else              DIN_L;
+        SCLK_H; SCLK_L;
+        cmd = cmd << 1;
+    }
+    DIN_L; 
+    if(cnt = 3) return;  
+    if(mem = 0)                         // если старшие 4 бита команды равны нулю, то команда имеет ответ
+    {
+        for(i = 0; i < 8; i++)
+        {
+            SCLK_H;
+            cmd = cmd << 1;
+            if(DOUT_H)  cmd |= 1;
+            SCLK_L;
+        }
+        return(cmd & 255);
+    }
+}
+
+// инициализация трансивера 
+proc InitHTRC()
+{
+    var a;
+
+	HTRCcmd(SET_CONFIG_PAGE + 0x00 + 0x02);
+	HTRCcmd(SET_CONFIG_PAGE + 0x10 + 0x00);
+	HTRCcmd(SET_CONFIG_PAGE + 0x20 + 0x00);
+	HTRCcmd(SET_CONFIG_PAGE + 0x30 + 0x00);
+	// читаем обратно нулевую страницу, чтобы проверить связь с трансивером
+	a = HTRCcmd(GET_CONFIG_PAGE + 0x00);  if((a & 0x0F) != 0x02)	return (1);
+	//a = HTRCcmd(GET_CONFIG_PAGE + 0x01);  if((a & 0x0F) != 0x00)	return (1);
+
+	return (0);
+}
+
+proc Restart_Transponder()
+{
+	HTRCcmd(SET_CONFIG_PAGE + 0x10 + 0x01);		// switch off HTRC110 drivers/RF-field
+	Delay(10000);
+	HTRCcmd(SET_CONFIG_PAGE + 0x10 + 0x0);		// switch on HTRC110 drivers again
+	Delay(2000);
+	
+	return (1);
+}
+
+proc Ast_Adjust(offset)
+{
+	var a;
+
+	a = HTRCcmd(READ_PHASE);
+	a = (a << 1);
+	a = (a + offset);
+	a = (a & 0x3F);
+	HTRCcmd(SET_SAMPLING_TIME | a);
+	
+	return (1);
+}
+
+proc InitFastTimer()
+{
+	FAST_TIMER_CLOCK = 1;		// 6 МГц
+}
+
+proc InitCapture()
+{
+	var	a;
+	
+	// READ_TAG
+	HTRCcmd(0x6A);
+    HTRCcmd(0x6B);
+    HTRCcmd(0x60);
+    HTRCcmd(0xE0);
+	
+	//SET UP INTERVALS
+    CAPT_INTERVAL0 = (4 << 16) | 8;           // 16To = 128mkc = 128/21.33 = 6.000
+    CAPT_INTERVAL1 = (9 << 16) | 14;          // 32To = 256mkc = 256/21.33 = 12.000
+	CAPT_INTERVAL2 = (14 << 16) | 21;           // 48To = 128mkc = 128/21.33 = 6.000
+    CAPT_INTERVAL3 = (21 << 16) | 28;         // 64To = 512mkc = 512/21.33 = 24.000
+    CAPT_INTERVAL4 = 0xFF;
+	CAPT_INTERVAL5 = 0xFF;
+	CAPT_INTERVAL6 = 0xFF;
+	CAPT_INTERVAL7 = 0xFF;	
+	
+	//INIT CAPTURE MODE
+    CAPT_MODE = 0;
+    CAPT_CLOCK = 4;
+	
+	//dec_st = 0;
+	
+    IRQ_ENABLE = 1;		// разрешаем прерывание
+}
+
+proc DeInitCapture()
+{
+	IRQ_ENABLE = 0;
+}
+
+proc SearchLIW()	// 16 64 32 48
+{
+	var a, p, guard, result;
+	
+	
+	dbg_n = 0;
+	guard = 0;
+	result = 0;
+	dec_st = 0;
+	
+	a = IRQ_FLAG;	// Сбрасываем флаг прерывания!!!
+	
+	for(;;)
+	{
+		guard++;
+		if(guard = 5000){ dec_st = 0; break; }
+		if(IRQ_FLAG = 0) continue;
+		
+		p = CAPT_VALUE2 & 0x7F;
+	
+		dbgu[dbg_n] = p;
+		dbg_n++;
+	
+		//continue;
+		if(dec_st = 0)		// Wait 32 pulse
+		{
+			if(p = 1){ dec_st = 1; continue; }	// 32 pulse
+			continue;
+		}
+		if(dec_st = 1)		// Wait 48 pulse
+		{
+			if(p = 1){ dec_st = 1; continue; }
+			if(p = 2){ dec_st = 2; continue; }
+			dec_st = 0; continue;
+		}
+		if(dec_st = 2)		// Wait 16 pulse
+		{
+			if(p = 0){ dec_st = 3; continue; }	// 16 pulse
+			if(p = 1){ dec_st = 1; continue; }	// 32 pulse
+			dec_st = 0; continue;
+		}
+		if(dec_st = 3)		// Wait 64 pulse
+		{
+			if(p = 1){ dec_st = 1; continue; }
+			if(p = 3){ result = 1; break; }
+			dec_st = 0; continue;
+		}
+	}
+	
+	FAST_TIMER = 0;
+	
+	return (result);
+}
+
+proc Read32BitManch()
+{
+	var a, p, t, guard, result, level, bt_cnt;
+	
+
+	dbg_n = 0;
+	guard = 0;
+	result = 0;
+	bt_cnt = 0;
+	dec_st = 0;
+	level = 0;
+	tag_data = 0;
+	
+	// Wait
+	t = 171 * FST_TMR_PER_T0;	// Откалибровано!!! Сейчас от 164 до 178.
+	while(FAST_TIMER < t);
+	a = IRQ_FLAG;				// перед началом сбрасываем флаг прерывания
+	a = 0;
+	
+	for(;;)
+	{
+		guard++;
+		if(guard = 2000){ dec_st = 0; break; }
+		if(IRQ_FLAG = 0) continue;
+		
+		p = CAPT_VALUE2 & 0x7F;
+	
+		dbgu[dbg_n] = p;
+		dbg_n++;
+		//continue;
+		// Read Header
+		if(dec_st = 0)	// читаем еденицы
+		{
+			if(p = 0)
+			{
+				a++; if(a = 15){ a = 0; dec_st = 1; } continue;
+			}
+			break;
+		}
+		if(dec_st = 1)	// переход на нули
+		{
+			if(p = 1){ dec_st = 2; continue; }
+			break;
+		}
+		if(dec_st = 2)	// читаем нули
+		{
+			if(p = 0)
+			{
+				a++; if(a = 6){ a = 0; dec_st = 3; } continue;
+			}
+			break;
+		}
+		if(dec_st = 3)	// переход на данные
+		{
+			if(p = 0){ dec_st = 4; continue; }
+			if(p = 1){ level ^= 1; dec_st = 5; continue; }
+			break;
+		}
+		
+		// Read Data
+		if(dec_st = 4)	// Wait Short Interval
+		{
+			if(p = 0)	// Short Interval
+			{
+				if(bt_cnt = 31){ tag_data = ((tag_data << 1) | level); result = 1; break; }
+				else{ dec_st = 5; continue; }
+			}
+			break;
+		}
+		if(dec_st = 5)	// Wait Any Interval
+		{
+			if(p = 0)	// Short Interval
+			{
+				tag_data = ((tag_data << 1) | level); bt_cnt++; dec_st = 4; continue;
+			}
+			if(p = 1)	// Long	Interval
+			{
+				tag_data = ((tag_data << 1) | level); level ^= 1; bt_cnt++;
+				if(bt_cnt = 31){ tag_data = ((tag_data << 1) | level); result = 1; break; }
+				else{ dec_st = 5; continue; }
+			}
+			break;
+		}
+	}
+	
+	FAST_TIMER = 0;
+	
+	return (result);
+}
+
+proc EncodeBits(Bits, Num)		
+{
+	var i;
+	
+	i = 0;
+	while(i != Num)
+	{
+		if(Bits & 0x80000000){ sData[sLen] = 0x0; }
+		else{ sData[sLen] = 0x70; }
+		
+		sLen++;
+		Bits = Bits << 1;
+		i++;
+	}
+}
+
+proc ReadBlock(block)	// block 0 - User Memory, block 1 - ID 
+{
+	var a, t;
+	
+	// PreInit
+	STREAMPIN = PORTB.5;
+	sLen = 0;
+	
+	// Prepare Stream
+	if(block = 0)
+	{
+		EncodeBits(0x14000000, 6);		// Генерируем команду чтение UM блока
+	}
+	else
+	{
+		EncodeBits(0x0C000000, 6);		// Генерируем команду чтения ID блока
+	}
+	
+	InitCapture();
+	a = SearchLIW();
+	if(a = 0){ DeInitCapture(); return (0); }
+	DeInitCapture();
+	
+	// WRITE_TAG( прозрачный режим )
+	HTRCcmd(0xC0);
+	DIN_L;
+	
+	
+	// Wait
+	t = 110 * FST_TMR_PER_T0;	// Откалибровано!!! Сейчас от 100 до 130.
+	while(FAST_TIMER < t);
+	
+	a = sLen * 8;
+	StreamOut(sData, a, 32);
+	FAST_TIMER = 0;
+	
+	
+	InitCapture();
+	dbg_timer = FAST_TIMER;
+	dbg_timer = dbg_timer / FST_TMR_PER_T0;
+	a = Read32BitManch();
+	//a = SearchLIW();
+	if(a = 0){ DeInitCapture(); return (0); }
+	DeInitCapture();
+	//dbg_timer = dbg_timer / FST_TMR_PER_T0;
+	return (1);
+	
+}
+
+proc EncodeBitsWithParity(Bits, Num)		
+{
+	var i, parity;
+	
+	parity = 0;
+	i = 0;
+	while(i != Num)
+	{
+		parity = parity ^ Bits;
+		if(Bits & 0x80000000){ sData[sLen] = 0x0; }
+		else{ sData[sLen] = 0x70; }
+		
+		sLen++;
+		Bits = Bits << 1;
+		i++;
+	}
+	
+	parity = parity & 0x80000000;
+	if(parity = 0x80000000){ sData[sLen] = 0x0; }
+	else{ sData[sLen] = 0x70; }
+	sLen++;
+}
+
+proc EncodeWriteCmd(Adr, HByte, LByte)
+{
+	var i, data, cparity;
+	
+	EncodeBits(0x28000000, 6);	// Генерируем команду записи слова
+	
+	Adr = ((Adr & 0xF) << 28);
+	EncodeBitsWithParity(Adr, 4);
+	
+	data = (((HByte & 0xFF) << 24) | ((LByte & 0xFF) << 16));
+	tag_data = data;
+	
+	cparity = 0;
+	i = 0;
+	while(i != 4)
+	{
+		cparity = cparity ^ data;
+		EncodeBitsWithParity(data, 4);
+		data = data << 4;
+		i++;
+	}
+	
+	cparity = cparity & 0xF0000000;
+	EncodeBits(cparity, 5);
+}
+
+proc CheckACK()	// 16 16 48 16 48 16
+{
+	var a, p, guard, result;
+	
+	dbg_n = 0;
+	guard = 0;
+	result = 0;
+	dec_st = 0;
+	
+	a = IRQ_FLAG;	// Сбрасываем флаг прерывания!!!
+	
+	for(;;)
+	{
+		guard++;
+		if(guard = 5000){ dec_st = 0; break; }
+		if(IRQ_FLAG = 0) continue;
+		
+		p = CAPT_VALUE2 & 0x7F;
+	
+		dbgu[dbg_n] = p;
+		dbg_n++;
+	
+		if(dec_st = 0)	// ждем импульс 16 * t0
+		{
+			if(p = 0){ dec_st = 1; continue; }	// импульс 16 * t0
+			break;	// ошибка
+		}
+		if(dec_st = 1)	// ждем импульс 48 * t0
+		{
+			if(p = 2){ dec_st = 2; continue; }	// импульс 48 * t0
+			break;	// ошибка
+		}
+		if(dec_st = 2)	// ждем импульс 16 * t0
+		{
+			if(p = 0){ dec_st = 3; continue; }	// импульс 16 * t0
+			break;	// ошибка
+		}
+		if(dec_st = 3)	// ждем импульс 48 * t0
+		{
+			if(p = 2){ dec_st = 4; continue; }	// импульс 48 * t0
+			break;	// ошибка
+		}
+		if(dec_st = 4)	// ждем импульс 16 * t0
+		{
+			if(p = 0){ result = 1; break; }	// импульс 16 * t0
+			break;	// ошибка
+		}
+	}
+	
+	FAST_TIMER = 0;
+	
+	return (result);
+}
+
+proc WriteWord(Adr, HByte, LByte)
+{
+	var a, t;
+	
+	// PreInit
+	STREAMPIN = PORTB.5;
+	sLen = 0;
+	EncodeWriteCmd(Adr, HByte, LByte);
+	
+	InitCapture();
+	a = SearchLIW();
+	if(a = 0){ DeInitCapture(); return (0); }
+	DeInitCapture();
+	
+	// WRITE_TAG( прозрачный режим )
+	HTRCcmd(0xC0);
+	DIN_L;
+	
+	// Wait
+	t = 113 * FST_TMR_PER_T0;	// Откалибровано!!! Сейчас от 100 до 130.
+	while(FAST_TIMER < t);
+	
+	a = sLen * 8;
+	StreamOut(sData, a, 32);
+	FAST_TIMER = 0;
+	
+	
+	InitCapture();
+	// Wait
+	t = 183 * FST_TMR_PER_T0;	// Откалибровано!!! Сейчас от 176 до 192.
+	while(FAST_TIMER < t);
+	
+	a = CheckACK();
+	if(a = 0){ DeInitCapture(); return (0); }
+	DeInitCapture();
+	
+	// Wait
+	delay(25000);
+	
+	return (1);
+}

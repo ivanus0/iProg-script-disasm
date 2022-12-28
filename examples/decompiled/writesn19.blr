@@ -1,0 +1,53 @@
+Menu
+    Write,Write,0,F4
+EndMenu
+
+Window(caption="";width=300;height=80;align=h)
+{
+    Label(caption="%bold=1%fcolor=$0000ff%size=10%fname=Tahoma%Please disconnect all adapters from iProg+!";name=0;left=10;top=10;width=0;value=0)
+    Button(caption="Change SN to 19";left=100;top=40;width=120;height=25;proc=Write)
+}
+
+$HOST
+
+proc Write()
+{
+	var tmp, n;
+	if (WINDOW = 0) SHOWWINDOW;
+	n = DEVICE_SERIAL;
+	print("\nCurrent SN:"+#i.n);
+	device.getSN();
+	n = device.sn;
+	print("\nFlash ID:"+#h4.n);
+	tmp = mbox("Are You sure, continue?", 1);
+	if (tmp = 0)
+	{
+		print("\nAborted by user");
+	}
+	else
+	{
+		device.setSN();
+		n = device.sn;
+	}
+}
+
+$DEVICE
+
+//#define snnum 0xEEA1E690	// 1
+#define snnum 0x4A354204	// 19
+//#define snnum 0xB4CABCFB		// 45
+
+dword sn;
+
+proc setSN()
+{
+	SERIAL = snnum;
+	sn = SERIAL;
+}
+
+proc getSN()
+{
+	sn = SERIAL;
+}
+
+
