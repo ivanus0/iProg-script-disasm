@@ -4,6 +4,6 @@ iProgDecompiler.py расшифровывает и создаёт листинг
 
 Также поддерживает дизасемблирование калькуляторов - файлы .cal
 
-В папке [examples\сompiled](examples\сompiled) лежат несколько примеров скомилированных скриптов
-Декомпилированный результат в [examples\decompiled](examples\decompiled)
+В папке [examples/сompiled](examples/сompiled) лежат несколько примеров скомилированных скриптов
+Декомпилированный результат в [examples/decompiled](examples/decompiled)
 
