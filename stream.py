@@ -108,4 +108,4 @@ class STREAM:
             if c == end:
                 break
             result += c
-        return result.decode()
+        return result.decode(encoding='cp1251', errors='ignore')
