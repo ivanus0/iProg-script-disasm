@@ -528,7 +528,7 @@ class DisassemblerIPR:
             if line.instruction[:4] == 'CMPJ':
                 ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(line.instruction[4:],
                                                                                                '??')
-                line.set_comment(f'if ({line.arg_str(0)} {ncond} {line2.arg_str(1)}) {{')
+                line.set_comment(f'if ({line.arg_str(0)} {ncond} {line.arg_str(1)}) {{')
                 line = line.next()
                 continue
 
