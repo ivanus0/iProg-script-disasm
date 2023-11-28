@@ -44,14 +44,16 @@ class Line:
 
         command = self.listing.dis.instruction_str(self.instruction, self.args)
 
-        l = f'{mark:<8}{address} {bytes:<16}{command}'
+        line = f'{mark:<8}{address} {bytes:<16}{command}'
 
         if self.comment is not None:
-            l = f'{l:<64} // {self.comment}'
+            # comment = self.comment.replace('\n', '\n'+' '*64+' // ')
+            comment = self.comment
+            line = f'{line:<64} // {comment}'
 
-        l = label + l
+        line = label + line
 
-        return l
+        return line
 
     def set_comment(self, comment):
         self.comment = comment
@@ -65,8 +67,8 @@ class Line:
     def arg_str(self, n):
         return self.listing.dis.arg_str(self.args[n])
 
-    def setarg_type(self, n, newtype):
-        self.args[n] = (self.arg(n), newtype)
+    def set_arg_type(self, n, new_type):
+        self.args[n] = (self.arg(n), new_type)
 
     def next(self):
         return self.listing.line(self.ea + self.len)
@@ -146,10 +148,12 @@ class Listing:
         self.set_label(address, self.lbl_string(string, address))
         self.mem.pos = p
 
-    def esc_string(self, string):
+    @staticmethod
+    def esc_string(string):
         return f'"{repr(string)[1:-1]}"'
 
-    def lbl_string(self, string, address=None):
+    @staticmethod
+    def lbl_string(string, address=None):
         lbl = ''
         for c in string:
             if c == '\n' or c == '\r':
@@ -166,17 +170,15 @@ class Listing:
             lbl = '_'
         elif '0' <= lbl[0] <= '9':
             lbl = '_' + lbl
+        # no more than 8 chars
+        lbl = lbl[:8]
         if address is not None:
             lbl += f'_{address:04X}'
 
         return lbl
 
-
     def get_addresses(self, type):
         return [a for a in self.lines if self.mem.is_defined(a, 1) and type <= self.lines[a].type]
-
-
-
 
     def disasm_proc(self, ea):
         # disasm proc
@@ -193,7 +195,11 @@ class Listing:
             if 'c' not in self.type(a):
                 branch.update(self.dis.disasm_command(a))
         # next command - end of function
-        self.set_type(self.line(ea_last).next().ea, set('P'))
+        if 'b' not in self.line(ea_last).type:
+            self.set_type(self.line(ea_last).next().ea, set('P'))
+        else:
+            # mark bad function
+            self.set_type(ea, set('b'))
 
         # дизассемблировать неиспользуемый код...
         line = self.line(ea_first)
@@ -209,11 +215,10 @@ class Listing:
         if self.code_end is None or ea_last > self.code_end:
             self.code_end = ea_last
 
-
-    def disassemble(self, disassemblerclass):
+    def disassemble(self, disassembler_class, presets=None):
         lst = []
-        self.dis = disassemblerclass(self)
-        # дизасемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
+        self.dis = disassembler_class(self, presets)
+        # дизассемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
         # тут в listing точки входа в процедуры и ссылки на глобальные переменные
         while True:
             func_ea = self.get_addresses(set('pu'))
@@ -223,7 +228,7 @@ class Listing:
                 self.disasm_proc(ea)
 
         # попытаемся определить неиспользуемые ф-ии
-        # Если первая ф-ия  начинается не с начала, то в начале - точно ф-ия
+        # Если первая ф-ия начинается не с начала, то в начале - точно ф-ия
         ea = self.mem.mem_offset
         if 'u' in self.type(ea) and ea < self.code_start:
             self.set_type(ea, set('p'))
@@ -275,7 +280,7 @@ class Listing:
         if self.mem is not None:
             last_ea = self.mem.mem_offset+self.mem.len
             while a_next.ea < last_ea:
-                #?? if self.mem.is_defined(a, 1):
+                # ?? if self.mem.is_defined(a, 1):
                 lst.append(str(a_next))
                 a_next = a_next.next()
 
@@ -286,4 +291,3 @@ class Listing:
             #         lst.append(str(l))
         return lst
         # return [str(self.lines[k]) for k in sorted(self.lines)]
-

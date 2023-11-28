@@ -56,7 +56,7 @@ class STREAM:
     def __get_abspos(self, pos, length):
         p = self.__is_defined(pos, length)
         if p is None:
-            raise MemoryNotDefined(pos, length, p+self.file_offset)
+            raise MemoryNotDefined(pos, length, pos-self.mem_offset+self.file_offset)
         return p
 
     def __read(self, fmt, length):

@@ -95,13 +95,16 @@ class DisassemblerCAL:
     # 'S=S     ',    4Eh,    'b',    'b',    'n'
     # 'PRN     ',    4Fh,    'b',    'b',    'n'
 
-    def __init__(self, listing: Listing):
+    def __init__(self, listing: Listing, presets: dict):
         self.listing = listing
+        self.presets = presets
 
-    def arg(self, arg):
+    @staticmethod
+    def arg(arg):
         return arg[0]
 
-    def arg_type(self, arg):
+    @staticmethod
+    def arg_type(arg):
         return arg[1]
 
     def arg_str(self, arg):

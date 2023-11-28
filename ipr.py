@@ -1,7 +1,8 @@
-import re
 from stream import STREAM, MemoryNotDefined
 from decode import decode_devicebytecode
 from listing import Listing
+from ipr_decomp import decompile
+
 
 class DisassemblerIPR:
     # arg_type:
@@ -9,115 +10,6 @@ class DisassemblerIPR:
     # 'd' - const data
     # 'o' - offset
     # 'a' - offset to array
-
-    io_host = {
-        0: "PORTA",
-        1: "PORTB",
-        2: "PORTC",
-        3: "PORTD",
-        4: "PORTE",
-        5: "TIMER",
-        6: "UART_DATA",
-        7: "UART_CR",
-        # 7: "VM_ID",
-        8: "UART_MR",
-        9: "UART_BRGR",
-        10: "USB",
-        11: "USB_WAIT",
-        12: "USB16",
-        13: "USB16_WAIT",
-        14: "USB32",
-        15: "USB32_WAIT",
-        16: "POWER",
-        17: "SPI_CR",
-        18: "SPI_DATA32",
-        # 19: "SPI_DATA8",
-        19: "SPI_DATA",
-        20: "ADC_CR",
-        21: "ADC_SR",
-        22: "ADC_DATA0",
-        23: "ADC_DATA1",
-        24: "ADC_DATA2",
-        25: "ADC_DATA3",
-        26: "IDLE_ENABLE",
-        27: "TIMER2",
-        28: "PWM0",
-        29: "PWM1",
-        # 29: "DBG1",
-        30: "PWM2",
-        # 30: "DBG2",
-        31: "IRQ_FLAG",
-        32: "IRQ_ENABLE",
-        33: "WINDOW",
-        34: "FAST_TIMER",
-        35: "CAPT_VALUE",
-        37: "CAPT_VALUE2",
-        36: "CAPT_CLOCK",
-        # 37: "TIMER_ENABLE",
-        38: "SPI_DATA16",
-        39: "SPI_DATA24",
-        # 28: "SPI_CSR",
-        40: "RANDOM",
-        # 40: "CAPT_MODE",
-        41: "CAPT_TIMER",
-        42: "FAST_TIMER_CLOCK",
-
-        50: "CAPT_INTERVAL0",
-        51: "CAPT_INTERVAL1",
-        52: "CAPT_INTERVAL2",
-        53: "CAPT_INTERVAL3",
-        54: "CAPT_INTERVAL4",
-        55: "CAPT_INTERVAL5",
-        56: "CAPT_INTERVAL6",
-        57: "CAPT_INTERVAL7",
-        58: "CAPT_INTERVAL8",
-        59: "CAPT_INTERVAL9",
-
-        60: "BDM_ENABLE",
-        61: "BDM_TIMES",
-        62: "BDM_DATA_8",
-        63: "BDM_DATA_16",
-        64: "BDM_DATA_32",
-        # 64: "BDM_SYNC",
-        # 21: "BDM_SYNC_PULSE",
-        # 22: "BDM_CLOCK",
-        # 23: "BDM_MULT",
-
-        65: "ESIZE1",
-        66: "ESIZE2",
-        67: "ESIZE3",
-        68: "FILEEXISTS",
-        69: "SW_VERSION",
-
-        254: "WRITE_ENABLE",
-        70: "DEVICE_SERIAL",
-        # 72: "DDEVICE_SERIAL",
-        255: "SERIAL",
-
-        # 24: "I2C_PINS",
-        # 65: "I2C_DATA",
-        # 66: "ESPI_CONFIG",
-        # 70: "I2C_DATA_ACK",
-        71: "OPEN_FILE_DIALOG",
-        72: "SAVE_FILE_DIALOG",
-        # 74: "PULSE_35080",
-        # 54: "PULSE2_35080",
-        # 75: "PORTA_PULSE",
-        # 76: "PWM_PULSE",
-        # 77: "PWM_DIRECT",
-        77: "SOUND",
-        200: "DBGA"
-    }
-    io_dev = {
-        67: "ESPI_DATA8",
-        68: "ESPI_DATA16",
-        69: "ESPI_DATA32",
-        71: "I2C_ACK",
-        # 71: "ER35080",
-        72: "PWM0_RUN",
-        73: "PWM0_PULSE",
-        253: "USB_INT",
-    }
 
     # ???
     # A - Address
@@ -246,13 +138,20 @@ class DisassemblerIPR:
         0x73: ['', 'BNN'],  # ?
     }
 
-    def __init__(self, listing: Listing):
+    def __init__(self, listing: Listing, presets: dict):
         self.listing = listing
+        self.presets = presets
 
-    def arg(self, arg):
+    def is_host(self):
+        is_device = self.presets and self.presets.get('type') == 'device'
+        return not is_device
+
+    @staticmethod
+    def arg(arg):
         return arg[0]
 
-    def arg_type(self, arg):
+    @staticmethod
+    def arg_type(arg):
         return arg[1]
 
     def arg_str(self, arg):
@@ -289,7 +188,7 @@ class DisassemblerIPR:
             return ''
 
     def disasm_command(self, ea):
-        # Дизасемблируем 1 инструкцию. Возвращаем список адресов, с которых можно продолжать дизассемблирование
+        # Дизассемблируем 1 инструкцию. Возвращаем список адресов, с которых можно продолжать дизассемблирование
 
         def set_command(instruction, args):
             self.listing.set_command(ea, self.listing.mem.pos - ea, instruction, args)
@@ -335,7 +234,7 @@ class DisassemblerIPR:
                     t1 = m.read_byte()
                     t2 = m.read_wordbe()
                     set_command(mnem[0], [(t1, 'r'), (t2, 'o')])
-                    if c == 0x63 or c == 0x64:
+                    if mnem[0] in ['JZ', 'JNZ']:
                         # JZ, JNZ
                         addresses.add(t2)
                         self.listing.set_label(t2, f'loc_{t2:04X}', False)
@@ -355,7 +254,7 @@ class DisassemblerIPR:
                     t1 = m.read_wordbe()
                     set_command(mnem[0], [(t1, 'o')])
                     # если CALL то добавить listing, но не добавляем в addresses
-                    if c == 0x57:
+                    if mnem[0] == 'CALL':
                         # CALL
                         self.listing.set_label(t1, f'proc_{t1:04X}', False)
                         self.listing.set_type(t1, set('p'))
@@ -376,9 +275,12 @@ class DisassemblerIPR:
                     t1 = a & 0x0f
                     t2 = a >> 4
                     t3 = m.read_wordbe()
-                    set_command(mnem[0], [(t1, 'r'), (t2, 'r'), (t3, 'o')])
-                    self.listing.set_label(t3, f'loc_{t3:04X}', False)
-                    addresses.add(t3)
+                    if mnem[0] != 'LMA':
+                        set_command(mnem[0], [(t1, 'r'), (t2, 'r'), (t3, 'o')])
+                        self.listing.set_label(t3, f'loc_{t3:04X}', False)
+                        addresses.add(t3)
+                    else:
+                        set_command(mnem[0], [(t1, 'r'), (t2, 'r'), (t3, 'd')])
 
                 elif mnem[1] == 'BNN':
                     # RET, PUSHR, POPR, SYS, DCALL, PUSHB
@@ -454,7 +356,10 @@ class DisassemblerIPR:
                     breakdisasm = True
 
             else:
-                print(f'unknown code {c:x}')
+                print(f'invalid code {c:x} @{ea:04x}')
+                # mark bad instruction
+                set_command('<invalid>', [])
+                self.listing.set_type(ea, set('b'))
                 breakdisasm = True
 
             if c == 0x58 or c == 0x56:  # RET or JMP
@@ -474,256 +379,7 @@ class DisassemblerIPR:
             self.postprocess_proc(f)
 
     def postprocess_proc(self, ea):
-        line = self.listing.line(ea)
-        while True:
-
-            if 'P' in line.type and line.ea != ea:  # конец ф-ии
-                break
-
-            if line.instruction == 'PUSHR':
-                line2 = line.next()
-                if line2.instruction == 'ENTER':
-                    v = ', '.join([f'R{a}' for a in range(line2.arg(0))])
-                    line.set_comment(f'{line.name}({v}){{')
-                    v = ', '.join([f'R{a + line2.arg(0)}' for a in range(line2.arg(1) - line2.arg(0))])
-                    line2.set_comment(f'var {v};')
-                    line = line2.next()
-                    continue
-
-            # for(_init_;_cond_;_incr_){} instruction
-            if re.match('LD[BWD]', line.instruction) and line.arg_type(0) == 'r':
-                line2 = line.next()
-                if re.match('LD[BWD]', line2.instruction) and line2.arg_type(0) == 'r':
-                    line3 = line2.next()
-                    if line3.instruction[:4] == 'CMPJ' and line3.arg(0) == line.arg(0) and line3.arg(1) == line2.arg(0):
-                        ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(
-                            line3.instruction[4:], '??')
-                        line3.set_comment(
-                            f'for ({line.arg_str(0)} = {line.arg_str(1)}; {line.arg_str(0)} {ncond} {line2.arg_str(1)}; _incr_) {{')
-                        line.set_comment('_init_')
-                        line2.set_comment('_cond_')
-
-                        linee = line3.next()
-                        lineincr = None
-                        while 'P' not in linee.type:
-                            if linee.instruction == 'JMP' and linee.arg(0) == line2.ea and linee.next().ea == line3.arg(
-                                    2):
-                                if lineincr is not None:
-                                    lineincr.set_comment('_incr_')
-                                linee.set_comment('}')
-                                break
-
-                            elif linee.instruction == 'JMP' and linee.arg(0) == line2.ea:
-                                linee.set_comment('  continue;')
-
-                            elif linee.instruction == 'JMP' and linee.arg(0) == line3.arg(2):
-                                linee.set_comment('  break;')
-
-                            lineincr = linee
-                            linee = linee.next()
-
-                        line = line3.next()
-                        continue
-
-            if line.instruction[:4] == 'CMPJ':
-                ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(line.instruction[4:],
-                                                                                               '??')
-                line.set_comment(f'if ({line.arg_str(0)} {ncond} {line.arg_str(1)}) {{')
-                line = line.next()
-                continue
-
-            if line.instruction == 'IN':
-                r = line.arg_str(0)
-                a = line.arg(1)
-                inp = self.io_host.get(a, str(a))
-                line.set_comment(f'{r} = {inp}')
-                line = line.next()
-                continue
-
-            if line.instruction == 'OUT':
-                a = line.arg(0)
-                r = line.arg_str(1)
-                inp = self.io_host.get(a, str(a))
-                line.set_comment(f'{inp} = {r}')
-                line = line.next()
-                continue
-
-            if line.instruction == 'SYS' and line.arg(0) == 0:
-                line.set_comment('print or mbox or backup function begin')
-                line = line.next()
-                continue
-
-            if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 3:
-                    line.set_comment('')
-                    line2.set_comment('#i.R15')
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) in [6, 7, 8]:
-                    w = 2 ** (line2.arg(0) - 6)  # учтонить..
-                    line.set_comment('')
-                    line2.set_comment(f'#h{w}.R15')
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'LDW' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 1:
-                    stroffset = line.arg(1)
-                    self.listing.setCString(stroffset)
-                    line.setarg_type(1, 'o')
-                    comment = self.listing.line(stroffset).arg(0)
-                    line.set_comment('')
-                    line2.set_comment(comment)
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'ORD' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 9:
-                    a = line.arg(1)
-                    l = a & 0xFFFF
-                    h = a >> 16
-                    line.set_comment(f'{h}:{l}')
-                    line2.set_comment(f'R15 = mbox (..., {h})\n')
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'SYS' and line.arg(0) == 12:
-                line.set_comment('print (...)\n')
-                line = line.next()
-                continue
-
-            if line.instruction == 'SYS' and line.arg(0) == 26:
-                line.set_comment('backup (...)\n')
-                line = line.next()
-                continue
-
-            if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'LDW' and line2.arg_str(0) == 'R14' and line2.arg_type(1) == 'd':
-                    line3 = line2.next()
-                    if line3.instruction == 'ORD' and line3.arg_str(0) == 'R14' and line3.arg_type(1) == 'd':
-                        line4 = line3.next()
-                        if line4.instruction == 'SYS' and line4.arg(0) == 16:
-                            w = line3.arg(1) >> 16
-                            w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
-                            dev_label = f'device.d_{line2.arg(1):04X}'
-                            line.set_comment(f'')
-                            line2.set_comment(dev_label)
-                            line3.set_comment('')
-                            line4.set_comment(f'({w}){dev_label} = R15\n')
-                            line = line4.next()
-                            continue
-
-            if line.instruction == 'LDD' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 19:
-                    # SYS 19. R15hi - len bytes(1,2 or 4), R15lo = offset to device variable
-                    a = line.arg(1)
-                    w = a >> 16
-                    w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
-                    o = a & 0xFFFF
-                    dev_label = f'device.d_{o:04X}'
-                    line.set_comment(f'{w} | {dev_label}')
-                    line2.set_comment(f'R15 = ({w}){dev_label}\n')
-                    # надо установить тип переменной для device
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'RL' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
-                    line3 = line2.next()
-                    if line3.instruction == 'ADDD' and line2.arg_str(0) == 'R15':
-                        line4 = line3.next()
-                        if line4.instruction == 'SYS' and line4.arg(0) == 19:
-                            a = line3.arg(1)
-                            w = a >> 16
-                            w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
-                            o = a & 0xFFFF
-                            i = line.arg_str(1)
-                            dev_label = f'device.d_{o:04X}'
-                            line.set_comment('')
-                            line2.set_comment('')
-                            line3.set_comment(f'{w} | {dev_label}')
-                            line4.set_comment(f'R15 = ({w}){dev_label}[{i}]\n')
-                            line = line4.next()
-                            continue
-
-            if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 17:
-                    line.set_comment('')
-                    line2.set_comment(f'R15 = device.proc_id{line.arg(1)}()\n')
-                    line = line2.next()
-                    continue
-
-            if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 18:
-                    line.set_comment('')
-                    line2.set_comment(f'device.proc_id{line.arg(1)}()\n')
-                    line = line2.next()
-                    continue
-
-            # sys 18:
-            #  HiByte(R15) - num args
-            #  LoByte(R15) - device.proc_id
-            if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
-                    line3 = line2.next()
-                    if line3.instruction == 'SYS' and line3.arg(0) == 18:
-                        a = line2.arg(1)
-                        id = line.arg(1)
-                        n = a >> 8
-                        line.set_comment(f'id {id}')
-                        line2.set_comment(f'args {n}')
-                        line3.set_comment(f'device.proc_id{id}(<{n} args>)\n')
-                        line = line3.next()
-                        continue
-
-            if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
-                line2 = line.next()
-                if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
-                    line3 = line2.next()
-                    if line3.instruction == 'SYS' and line3.arg(0) == 17:
-                        a = line2.arg(1)
-                        id = line.arg(1)
-                        n = a >> 8
-                        line.set_comment('')
-                        line2.set_comment('')
-                        line3.set_comment(f'R15 = device.proc_id{id}(<{n} args>)\n')
-                        line = line3.next()
-                        continue
-
-            if line.instruction == 'CALL':
-                a = line.arg(0)
-                a = self.listing.get_label(a)
-                line.set_comment(f'{a}()')
-                line = line.next()
-                continue
-
-            if line.instruction == 'SYS' and line.arg(0) == 10:
-                line.set_comment(f'ShowWindow\n')
-                line = line.next()
-                continue
-
-            if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
-                line2 = line.next()
-                if line2.instruction == 'SYS' and line2.arg(0) == 14:
-                    a = line.arg_str(1)
-                    line.set_comment(f'')
-                    line2.set_comment(f'Delay({a})\n')
-                    line = line2.next()
-                    continue
-
-            line = line.next()
+        decompile(self.listing, ea)
 
 
 class IPR:
@@ -793,12 +449,12 @@ class IPR:
                 name = self.stream.read_str(b'\r')
                 if name != '-':
                     proc_id = self.stream.read_wordbe()
-                    id = self.stream.read_byte()          # byte or -1
+                    menu_id = self.stream.read_byte()       # byte or -1
                     hotkey = self.stream.read_str(b'\r')
                     label = f'{name.replace(" ", "_")}'
                     self.host_listing.set_label(proc_id, label)
                     self.host_listing.set_type(proc_id, set('p'))
-                    code.append(f'    {name},{label},{id},{hotkey}')
+                    code.append(f'    {name},{label},{menu_id},{hotkey}')
                 else:
                     code.append('    -')
                 if self.stream.peek_char() == b'\0':
@@ -866,14 +522,15 @@ class IPR:
         pad = 0
         c = self.stream.read_char()
         if c == b'W':
-            _ = self.stream.read_char()   # must be /r
+            # _ = self.stream.read_char()   # must be /r
+            caption = self.stream.read_str(b'\r')
 
             width = self.stream.read_wordbe()
             height = self.stream.read_wordbe()
             align = self.stream.read_wordbe()
             align = 'h' if align == 0 else 'v'  # ALIGN: Horizontal==0 Vertical==1
             f = {
-                'caption': '""',
+                'caption': f'"{caption}"',
                 'width': width,
                 'height': height,
                 'align': align
@@ -935,11 +592,16 @@ class IPR:
                 elif t == b'x':
                     # Picture
                     caption = self.stream.read_str(b'\r')
+                    # Попадались несколько "Kangoo*.ipr" у которых 4 word. Сломанные или старые?
+                    # Должно быть 5 word
                     name_id = self.stream.read_wordbe()
                     left = self.stream.read_wordbe()
                     top = self.stream.read_wordbe()
                     width = self.stream.read_wordbe()
                     height = self.stream.read_wordbe()
+                    # unknown = self.stream.read_wordbe()
+                    # width = 0
+                    # height = 0
                     name = f'picture_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -973,6 +635,7 @@ class IPR:
                         self.host_listing.set_type(proc, set('p'))
                         f['proc'] = label
                     code.append(f'{" "*pad}Checkbox({join_fields(f)})')
+                    self.host_listing.set_label(name_id, name)
 
                 elif t == b'I':
                     # List
@@ -1065,6 +728,7 @@ class IPR:
                         'value': value
                     }
                     code.append(f'{" "*pad}Hexedit({join_fields(f)})')
+                    self.host_listing.set_label(name_id, name)
 
                 elif t == b'b':
                     # Hexbytes
@@ -1086,7 +750,8 @@ class IPR:
                         'items': f'"{items}"'
                     }
                     code.append(f'{" "*pad}Hexbytes({join_fields(f)})')
-                    for i in range(value):
+                    self.host_listing.set_label(name_id, f'{name}')
+                    for i in range(1, value):
                         self.host_listing.set_label(name_id + i, f'{name}[{i}]')
 
                 elif t == b'Y':
@@ -1148,7 +813,7 @@ class IPR:
                     code.append(f'{" "*pad}}}')
 
                 else:
-                    print(f'Unknown window element {t}')
+                    print(f'Unknown window element {t} @{self.stream.pos:04x}')
 
             code.append('}')
 
@@ -1196,7 +861,7 @@ class IPR:
         self.host_listing.set_mem(host_bytecode)
         code.append('')
         code.append('$HOST')
-        code.extend(self.host_listing.disassemble(DisassemblerIPR))
+        code.extend(self.host_listing.disassemble(DisassemblerIPR, {'type': 'host'}))
 
         # DEVICE
         # Entry points...
@@ -1212,7 +877,7 @@ class IPR:
 
         # bytecode, может быть шифрованный
         start = self.stream.pos
-        # От текущей позиции до конца - 2 байта. crc должно быть выровнено на границу 64bytes
+        # От текущей позиции до конца - 2 байта. CRC должно быть выровнено на границу 64bytes
         device_bytecode = self.stream.read_stream(self.stream.len - self.stream.pos - 2)
         device_bytecode.mem_offset = 0
         self.b_scriptdevice_crypt_start = start
@@ -1226,12 +891,12 @@ class IPR:
         code.append('')
         code.append('$DEVICE')
 
-        ## fix this
+        # # fix this
         device_bytecode.bin = decode_devicebytecode(device_bytecode.bin, crc)
         if device_bytecode is not None:
             self.scriptdevice = device_bytecode
             self.device_listing.set_mem(device_bytecode)
-            code.extend(self.device_listing.disassemble(DisassemblerIPR))
+            code.extend(self.device_listing.disassemble(DisassemblerIPR, {'type': 'device'}))
         else:
             code.append('// invalid crc bytecode')
 
@@ -1251,4 +916,3 @@ class IPR:
         self.decompile_editor()
         self.decompile_window()
         self.decompile_script()
-
