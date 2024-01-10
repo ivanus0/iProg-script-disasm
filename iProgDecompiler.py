@@ -7,25 +7,21 @@ from cal import CAL
 def decompile_ipr(ipr_filename):
     ipr = IPR(ipr_filename)
     ipr.decompile()
-    with open(os.path.splitext(ipr_filename)[0] + '.lst', 'w') as f:
+    with open(os.path.splitext(ipr_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
         f.write('\n'.join(ipr.get_lst()))
-        f.close()
 
     with open(os.path.splitext(ipr_filename)[0] + '_decrypted.ipr', 'wb') as f:
         f.write(ipr.get_ipr())
-        f.close()
 
 
 def decompile_cal(cal_filename):
     cal = CAL(cal_filename)
     cal.decompile()
-    with open(os.path.splitext(cal_filename)[0] + '.lst', 'w') as f:
+    with open(os.path.splitext(cal_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
         f.write('\n'.join(cal.get_lst()))
-        f.close()
 
     with open(os.path.splitext(cal_filename)[0] + '_decrypted.cal', 'wb') as f:
         f.write(cal.get_data())
-        f.close()
 
 
 def decompile(source_filename):
