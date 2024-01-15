@@ -119,6 +119,11 @@ def get_io_name(listing, io_id, output):
         return str(io_id)
 
 
+def set_device_label(listing, ea, name):
+    if 'device_labels' in listing.dis.presets:
+        listing.dis.presets['device_labels'].append((ea, name))
+
+
 def decompile(listing: Listing, ea):
 
     if 'b' in listing.type(ea):
@@ -136,8 +141,9 @@ def decompile(listing: Listing, ea):
             line2 = line.next()
             if line2.instruction == 'ENTER':
                 v = ', '.join([f'R{a}' for a in range(line2.arg(0))])
-                line.set_comment(f'{line.name}({v}){{')
-                v = ', '.join([f'R{a + line2.arg(0)}' for a in range(line2.arg(1) - line2.arg(0))])
+                line.set_comment(f'proc {line.name}({v}){{')
+                # Typically the last one register is used as an unnamed variable.
+                v = ', '.join([f'R{a + line2.arg(0)}' for a in range(line2.arg(1) - line2.arg(0) - 1)])
                 if v:
                     line2.set_comment(f'var {v};')
                 line = line2.next()
@@ -305,7 +311,6 @@ def decompile(listing: Listing, ea):
         #     line.set_comment(f'if ({io}) {{\n')
         #     line = line.next()
         #     continue
-
 
         #
         # SYS 0 -> clear temp string
@@ -537,12 +542,13 @@ def decompile(listing: Listing, ea):
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 16:
                         w = line3.arg(1) >> 16
-                        w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
-                        dev_label = f'device.d_{line2.arg(1):04X}'
+                        w, pref = {1: ('byte', 'b_'), 2: ('word', 'w_'), 4: ('dword', 'd_')}.get(w, str(w))
+                        dev_label = f'{pref}{line2.arg(1):04X}'
+                        set_device_label(listing, line2.arg(1), dev_label)
                         line.set_comment(f'')
                         line2.set_comment('')
-                        line3.set_comment(f'/* {line3.arg(1)}:{line2.arg(1)} is {w}:{dev_label} */')
-                        line4.set_comment(f'({w}){dev_label} = {line.arg_str(1)};\n')
+                        line3.set_comment(f'/* {line3.arg(1)}:{line2.arg(1)} is {w}:device.{dev_label} */')
+                        line4.set_comment(f'({w})device.{dev_label} = {line.arg_str(1)};\n')
                         line = line4.next()
                         continue
 
@@ -561,14 +567,15 @@ def decompile(listing: Listing, ea):
                 if line4.instruction == 'ADDW' and line4.arg_str(0) == 'R14':
                     line5 = line4.next()
                     if line5.instruction == 'SYS' and line5.arg(0) == 16:
-                        w = {0: 'byte', 1: 'word', 2: 'dword'}.get(w, str(w))
-                        dev_label = f'device.d_{line4.arg(1):04X}'
+                        w, pref = {0: ('byte', 'b_'), 1: ('word', 'w_'), 2: ('dword', 'd_')}.get(w, str(w))
+                        dev_label = f'{pref}{line4.arg(1):04X}'
+                        set_device_label(listing, line4.arg(1), dev_label)
                         line.set_comment('')
                         line2.set_comment('')
                         if line3:
                             line3.set_comment('')
                         line4.set_comment('')
-                        line5.set_comment(f'({w}){dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
+                        line5.set_comment(f'({w})device.{dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
                         line = line5.next()
                         continue
 
@@ -579,10 +586,11 @@ def decompile(listing: Listing, ea):
                 line3 = line2.next()
                 if line3.instruction == 'SYS' and line3.arg(0) == 16:
                     w = 'byte'
-                    dev_label = f'device.d_{line2.arg(2):04X}'
+                    dev_label = f'b_{line2.arg(2):04X}'
+                    set_device_label(listing, line2.arg(2), dev_label)
                     line.set_comment('')
                     line2.set_comment('')
-                    line3.set_comment(f'({w}){dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
+                    line3.set_comment(f'({w})device.{dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
                     line = line3.next()
                     continue
 
@@ -591,9 +599,10 @@ def decompile(listing: Listing, ea):
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 16:
                 w = 'byte'
-                dev_label = f'device.d_{line.arg(2):04X}'
+                dev_label = f'b_{line.arg(2):04X}'
+                set_device_label(listing, line.arg(2), dev_label)
                 line.set_comment('')
-                line2.set_comment(f'({w}){dev_label}[{line.arg_str(1)}] = R15;\n')
+                line2.set_comment(f'({w})device.{dev_label}[{line.arg_str(1)}] = R15;\n')
                 line = line2.next()
                 continue
 
@@ -608,13 +617,14 @@ def decompile(listing: Listing, ea):
                         line5 = line4.next()
                         if line5.instruction == 'SYS' and line5.arg(0) == 16:
                             w = line3.arg(1)
-                            w = {0: 'byte', 1: 'word', 2: 'dword'}.get(w, str(w))
-                            dev_label = f'device.d_{line4.arg(1):04X}'
+                            w, pref = {0: ('byte', 'b_'), 1: ('word', 'w_'), 2: ('dword', 'd_')}.get(w, str(w))
+                            dev_label = f'{pref}{line4.arg(1):04X}'
+                            set_device_label(listing, line4.arg(1), dev_label)
                             line.set_comment('')
                             line2.set_comment('')
                             line3.set_comment('')
                             line4.set_comment('')
-                            line5.set_comment(f'({w}){dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
+                            line5.set_comment(f'({w})device.{dev_label}[{line2.arg_str(1)}] = {line.arg_str(1)};\n')
                             line = line5.next()
                             continue
 
@@ -627,22 +637,23 @@ def decompile(listing: Listing, ea):
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 16:
                         w = line2.arg(1)
-                        w = {1: 'word', 2: 'dword'}.get(w, str(w))
-                        dev_label = f'device.d_{line3.arg(1):04X}'
+                        w, pref = {1: ('word', 'w_'), 2: ('dword', 'd_')}.get(w, str(w))
+                        dev_label = f'{pref}{line3.arg(1):04X}'
+                        set_device_label(listing, line3.arg(1), dev_label)
                         line.set_comment('')
                         line2.set_comment('')
                         line3.set_comment('')
-                        line4.set_comment(f'({w}){dev_label}[{line.arg_str(1)}] = R15;\n')
+                        line4.set_comment(f'({w})device.{dev_label}[{line.arg_str(1)}] = R15;\n')
                         line = line4.next()
                         continue
 
         #
-        # SYS 17 -> R15 = device.proc_id_R15low_byte(R15hi_byte args)
+        # SYS 17 -> R15 = device.prc_id_R15low_byte(R15hi_byte args)
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 17:
                 line.set_comment('')
-                line2.set_comment(f'R15 = device.proc_id{line.arg(1)}();\n')
+                line2.set_comment(f'R15 = device.prc_id{line.arg(1)}();\n')
                 line = line2.next()
                 continue
 
@@ -656,17 +667,17 @@ def decompile(listing: Listing, ea):
                     n = a >> 8
                     line.set_comment('')
                     line2.set_comment('')
-                    line3.set_comment(f'R15 = device.proc_id{proc_id}(<{n} args>);\n')
+                    line3.set_comment(f'R15 = device.prc_id{proc_id}(<{n} args>);\n')
                     line = line3.next()
                     continue
 
         #
-        # SYS 18 -> device.proc_id_R15low_byte(R15hi_byte args)
+        # SYS 18 -> device.prc_id_R15low_byte(R15hi_byte args)
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 18:
                 line.set_comment('')
-                line2.set_comment(f'device.proc_id{line.arg(1)}();\n')
+                line2.set_comment(f'device.prc_id{line.arg(1)}();\n')
                 line = line2.next()
                 continue
 
@@ -680,7 +691,7 @@ def decompile(listing: Listing, ea):
                     n = a >> 8
                     line.set_comment(f'id {proc_id}')
                     line2.set_comment(f'args {n}')
-                    line3.set_comment(f'device.proc_id{proc_id}(<{n} args>);\n')
+                    line3.set_comment(f'device.prc_id{proc_id}(<{n} args>);\n')
                     line = line3.next()
                     continue
 
@@ -692,12 +703,12 @@ def decompile(listing: Listing, ea):
                 # SYS 19. R15hi - len bytes(1,2 or 4), R15lo = offset to device variable
                 a = line.arg(1)
                 w = a >> 16
-                w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
+                w, pref = {1: ('byte', 'b_'), 2: ('word', 'w_'), 4: ('dword', 'd_')}.get(w, str(w))
                 o = a & 0xFFFF
-                dev_label = f'device.d_{o:04X}'
-                line.set_comment(f'/* {a} is {w}:{dev_label} */')
-                line2.set_comment(f'R15 = ({w}){dev_label};')
-                # todo: надо установить тип переменной для device
+                dev_label = f'{pref}{o:04X}'
+                set_device_label(listing, o, dev_label)
+                line.set_comment(f'/* {a} is {w}:device.{dev_label} */')
+                line2.set_comment(f'R15 = ({w})device.{dev_label};')
                 line = line2.next()
                 continue
 
@@ -709,13 +720,13 @@ def decompile(listing: Listing, ea):
                     # SYS 19. R15hi - len bytes(1,2 or 4), R15lo = offset to device variable
                     a = line2.arg(1)
                     w = a >> 16
-                    w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
+                    w, pref = {1: ('byte', 'b_'), 2: ('word', 'w_'), 4: ('dword', 'd_')}.get(w, str(w))
                     o = a & 0xFFFF
-                    dev_label = f'device.d_{o:04X}[{line.arg_str(1)}]'
+                    dev_label = f'{pref}{o:04X}'
+                    set_device_label(listing, o, dev_label)
                     line.set_comment('')
-                    line2.set_comment(f'/* {a} is {w}:{dev_label} */')
-                    line3.set_comment(f'R15 = ({w}){dev_label};')
-                    # todo: надо установить тип переменной для device
+                    line2.set_comment(f'/* {a} is {w}:device.{dev_label} */')
+                    line3.set_comment(f'R15 = ({w})device.{dev_label}[{line.arg_str(1)}];')
                     line = line3.next()
                     continue
 
@@ -728,14 +739,15 @@ def decompile(listing: Listing, ea):
                     if line4.instruction == 'SYS' and line4.arg(0) == 19:
                         a = line3.arg(1)
                         w = a >> 16
-                        w = {1: 'byte', 2: 'word', 4: 'dword'}.get(w, str(w))
+                        w, pref = {1: ('byte', 'b_'), 2: ('word', 'w_'), 4: ('dword', 'd_')}.get(w, str(w))
                         o = a & 0xFFFF
                         i = line.arg_str(1)
-                        dev_label = f'device.d_{o:04X}'
+                        dev_label = f'{pref}{o:04X}'
+                        set_device_label(listing, o, dev_label)
                         line.set_comment('')
                         line2.set_comment('')
-                        line3.set_comment(f'/* {a} is {w}:{dev_label} /*')
-                        line4.set_comment(f'R15 = ({w}){dev_label}[{i}];')
+                        line3.set_comment(f'/* {a} is {w}:device.{dev_label} /*')
+                        line4.set_comment(f'R15 = ({w})device.{dev_label}[{i}];')
                         line = line4.next()
                         continue
 
@@ -752,12 +764,13 @@ def decompile(listing: Listing, ea):
                         host_label = f'd_{a1:04X}'
                         listing.set_label(a1, host_label, False)
                         line.set_arg_type(1, 'o')
-                        dev_label = f'device.d_{line2.arg(1):04X}'
+                        dev_label = f'b_{line2.arg(1):04X}'
+                        set_device_label(listing, line2.arg(1), dev_label)
                         a3 = line3.arg(1) >> 16
                         line.set_comment('')
-                        line2.set_comment(f'/* {dev_label} */')
+                        line2.set_comment(f'/* device.{dev_label} */')
                         line3.set_comment(f'/* ({a3} << 16) */')
-                        line4.set_comment(f'block({host_label} = {dev_label}, {a3});\n')
+                        line4.set_comment(f'block({host_label} = device.{dev_label}, {a3});\n')
                         line = line4.next()
                         continue
 
@@ -774,14 +787,15 @@ def decompile(listing: Listing, ea):
                             host_label = f'd_{a1:04X}'
                             listing.set_label(a1, host_label, False)
                             line.set_arg_type(1, 'o')
-                            dev_label = f'device.d_{line2.arg(1):04X}'
+                            dev_label = f'b_{line2.arg(1):04X}'
+                            set_device_label(listing, line2.arg(1), dev_label)
                             # a3 = line4.arg(1) >> 16
                             a3 = line3.arg_str(0)
                             line.set_comment(f'{a3} is arg2')
                             line2.set_comment('')
                             line3.set_comment('')
                             line4.set_comment('')
-                            line5.set_comment(f'block({host_label} = {dev_label}, arg2);\n')
+                            line5.set_comment(f'block({host_label} = device.{dev_label}, arg2);\n')
                             line = line5.next()
                             continue
 
@@ -795,12 +809,13 @@ def decompile(listing: Listing, ea):
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 21:
                         a1 = line.arg_str(1)
-                        dev_label = f'device.d_{line2.arg(1):04X}'
+                        dev_label = f'b_{line2.arg(1):04X}'
+                        set_device_label(listing, line2.arg(1), dev_label)
                         a3 = line3.arg(1) >> 16
                         line.set_comment('')
                         line2.set_comment('')
                         line3.set_comment('')
-                        line4.set_comment(f'block|memcopy(fbuf[{a1}] = {dev_label}, {a3});\n')
+                        line4.set_comment(f'block|memcopy(fbuf[{a1}] = device.{dev_label}, {a3});\n')
                         line = line4.next()
                         continue
 
@@ -811,11 +826,12 @@ def decompile(listing: Listing, ea):
                 if line3.instruction == 'OR' and line3.arg_str(0) == 'R14':
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 21:
-                        dev_label = f'device.d_{line.arg(1):04X}'
+                        dev_label = f'b_{line.arg(1):04X}'
+                        set_device_label(listing, line.arg(1), dev_label)
                         line.set_comment('')
                         line2.set_comment('')
                         line3.set_comment('')
-                        line4.set_comment(f'block(fbuf[R15] = {dev_label}, HWORD(R14));\n')
+                        line4.set_comment(f'block(fbuf[R15] = device.{dev_label}, HWORD(R14));\n')
                         line = line4.next()
                         continue
 
@@ -829,13 +845,14 @@ def decompile(listing: Listing, ea):
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 22:
                         line2.set_arg_type(1, 'o')
-                        dev_label = f'device.d_{line.arg(1):04X}'
+                        dev_label = f'b_{line.arg(1):04X}'
+                        set_device_label(listing, line.arg(1), dev_label)
                         host_label = f'd_{line2.arg(1):04X}'
                         a3 = line3.arg(1) >> 16
-                        line.set_comment(f'/* {dev_label} */')
+                        line.set_comment(f'/* device.{dev_label} */')
                         line2.set_comment('')
                         line3.set_comment(f'/* ({a3} << 16) */')
-                        line4.set_comment(f'block|memcopy({dev_label} = {host_label}, {a3});\n')
+                        line4.set_comment(f'block|memcopy(device.{dev_label} = {host_label}, {a3});\n')
                         line = line4.next()
                         continue
 
@@ -850,13 +867,14 @@ def decompile(listing: Listing, ea):
                     if line4.instruction == 'OR' and line4.arg_str(0) == 'R14':
                         line5 = line4.next()
                         if line5.instruction == 'SYS' and line5.arg(0) == 23:
-                            dev_label = f'device.d_{line.arg(1):04X}'
+                            dev_label = f'b_{line.arg(1):04X}'
+                            set_device_label(listing, line.arg(1), dev_label)
                             a3 = line4.arg_str(1)
-                            line.set_comment(f'/* {dev_label} */')
+                            line.set_comment(f'/* device.{dev_label} */')
                             line2.set_comment('')
                             line3.set_comment('')
                             line4.set_comment('')
-                            line5.set_comment(f'block|memcopy({dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
+                            line5.set_comment(f'block|memcopy(device.{dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
                             line = line5.next()
                             continue
 
@@ -868,12 +886,13 @@ def decompile(listing: Listing, ea):
                 if line3.instruction == 'ORD' and line3.arg_str(0) == 'R14':
                     line4 = line3.next()
                     if line4.instruction == 'SYS' and line4.arg(0) == 23:
-                        dev_label = f'device.d_{line.arg(1):04X}'
+                        dev_label = f'b_{line.arg(1):04X}'
+                        set_device_label(listing, line.arg(1), dev_label)
                         a3 = line3.arg(1) >> 16
-                        line.set_comment(f'/* {dev_label} */')
+                        line.set_comment(f'/* device.{dev_label} */')
                         line2.set_comment('')
                         line3.set_comment(f'/* ({a3} << 16) */')
-                        line4.set_comment(f'block|memcopy({dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
+                        line4.set_comment(f'block|memcopy(device.{dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
                         line = line4.next()
                         continue
 
@@ -1102,6 +1121,22 @@ def decompile(listing: Listing, ea):
             idx = line.arg_str(1)
             v = line.arg_str(2)
             line.set_comment(f'fbuf_{b}[{idx}] = {v};\n')
+            line = line.next()
+            continue
+
+        if line.instruction in ['AWRB', 'AWRW', 'AWRD']:
+            v = line.arg_str(0)
+            idx = line.arg_str(1)
+            a = line.arg_str(2)
+            line.set_comment(f'{v}[{idx}] = {a};\n')
+            line = line.next()
+            continue
+
+        if line.instruction in ['ARDB', 'ARDW', 'ARDD']:
+            a = line.arg_str(0)
+            v = line.arg_str(1)
+            idx = line.arg_str(2)
+            line.set_comment(f'{a} = {v}[{idx}];\n')
             line = line.next()
             continue
 

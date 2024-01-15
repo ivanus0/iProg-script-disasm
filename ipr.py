@@ -240,23 +240,26 @@ class DisassemblerIPR:
                         self.listing.set_label(t2, f'loc_{t2:04X}', False)
                     else:
                         # LDMx, ADDMx, ANDMx, SUBMx, ORMx, XORMx, MULMx, DIVMx, MODMx
-                        self.listing.set_label(t2, f'd_{t2:04X}', False)
+                        pref = 'b_' if mnem[0][-1] == 'B' else 'w_' if mnem[0][-1] == 'W' else 'd_'
+                        self.listing.set_label(t2, f'{pref}{t2:04X}', False)
 
                 elif mnem[1] == 'ARN':
                     # STMx
                     t1 = m.read_byte()
                     t2 = m.read_wordbe()
                     set_command(mnem[0], [(t2, 'o'), (t1, 'r')])
-                    self.listing.set_label(t2, f'd_{t2:04X}', False)
+                    pref = 'b_' if mnem[0][-1] == 'B' else 'w_' if mnem[0][-1] == 'W' else 'd_'
+                    self.listing.set_label(t2, f'{pref}{t2:04X}', False)
 
                 elif mnem[1] == 'WNN' or mnem[1] == 'ANN':
                     # JMP, CALL
                     t1 = m.read_wordbe()
                     set_command(mnem[0], [(t1, 'o')])
-                    # если CALL то добавить listing, но не добавляем в addresses
+                    # если CALL, то добавить в listing 'p', но не добавляем в addresses
                     if mnem[0] == 'CALL':
                         # CALL
-                        self.listing.set_label(t1, f'proc_{t1:04X}', False)
+                        # Don't use the proc_ prefix. This conflicts with iProg compiler
+                        self.listing.set_label(t1, f'prc_{t1:04X}', False)
                         self.listing.set_type(t1, set('p'))
                     else:
                         # JMP
@@ -340,14 +343,18 @@ class DisassemblerIPR:
 
                 elif mnem[1] == 'RAR':
                     # AWRx, ARDx
-                    # AWRD    t1 + R t2,R t3
-                    w = {0x6A: 'b', 0x6B: 'w', 0x6C: 'd', 0x6D: 'b', 0x6E: 'w', 0x6F: 'd'}
                     a = m.read_byte()
                     t1 = m.read_wordbe()
                     t2 = a & 0x0f
                     t3 = a >> 4
-                    set_command(mnem[0], [(t1, 'a'), (t2, 'r'), (t3, 'r')])
-                    label = f'arr{w[c]}_{t1:04X}'
+                    pref = 'b_' if mnem[0][-1] == 'B' else 'w_' if mnem[0][-1] == 'W' else 'd_'
+                    if mnem[0][:3] == 'AWR':
+                        # AWRx    t1 + R t2, R t3
+                        set_command(mnem[0], [(t1, 'a'), (t2, 'r'), (t3, 'r')])
+                    else:
+                        # ARDx    R t2, t1 + R t3
+                        set_command(mnem[0], [(t2, 'r'), (t1, 'a'), (t3, 'r')])
+                    label = f'{pref}{t1:04X}'
                     self.listing.set_label(t1, label, False)
                     self.listing.set_comment(t1, f'{label}[]')
 
@@ -861,7 +868,10 @@ class IPR:
         self.host_listing.set_mem(host_bytecode)
         code.append('')
         code.append('$HOST')
-        code.extend(self.host_listing.disassemble(DisassemblerIPR, {'type': 'host'}))
+        code.extend(self.host_listing.disassemble(DisassemblerIPR, {
+            'type': 'host',
+            'device_labels': []
+        }))
 
         # DEVICE
         # Entry points...
@@ -869,7 +879,7 @@ class IPR:
         for i in range(32):
             p = self.stream.read_wordle()
             if p != 0xFFFF:
-                label = f'proc_id{i}' if i != 31 else 'Idle'
+                label = f'prc_id{i}' if i != 31 else 'Idle'
                 self.device_listing.set_label(p, label)
                 self.device_listing.set_type(p, set('p'))
         self.b_scriptdevice_ep_start = start
@@ -896,7 +906,10 @@ class IPR:
         if device_bytecode is not None:
             self.scriptdevice = device_bytecode
             self.device_listing.set_mem(device_bytecode)
-            code.extend(self.device_listing.disassemble(DisassemblerIPR, {'type': 'device'}))
+            code.extend(self.device_listing.disassemble(DisassemblerIPR, {
+                'type': 'device',
+                'labels': self.host_listing.dis.presets['device_labels']
+            }))
         else:
             code.append('// invalid crc bytecode')
 

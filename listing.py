@@ -32,7 +32,7 @@ class Line:
 
         address = f'{self.ea:06X}'
         if self.listing.mem is not None:
-            address += f' [{self.ea  -self.listing.mem.mem_offset +self.listing.mem.file_offset:04X}]'
+            address += f' [{self.ea - self.listing.mem.mem_offset + self.listing.mem.file_offset:04X}]'
 
         if self.listing.mem and self.listing.mem.is_defined(self.ea, self.len):
             bytes = self.listing.mem.get_block(self.ea, self.ea + self.len)
@@ -218,6 +218,12 @@ class Listing:
     def disassemble(self, disassembler_class, presets=None):
         lst = []
         self.dis = disassembler_class(self, presets)
+
+        # Mark known labels
+        if presets:
+            for ea, name in presets.get('labels', []):
+                self.set_label(ea, name)
+
         # дизассемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
         # тут в listing точки входа в процедуры и ссылки на глобальные переменные
         while True:
@@ -230,9 +236,9 @@ class Listing:
         # попытаемся определить неиспользуемые ф-ии
         # Если первая ф-ия начинается не с начала, то в начале - точно ф-ия
         ea = self.mem.mem_offset
-        if 'u' in self.type(ea) and ea < self.code_start:
+        if self.code_start is not None and ea < self.code_start:
             self.set_type(ea, set('p'))
-            self.set_label(ea, f'proc_unused_{ea:06x}')
+            self.set_label(ea, f'unused_{ea:04x}')
             self.disasm_proc(ea)
         # Всё что между ф-иями - тоже ф-ии
         while True:
@@ -241,7 +247,7 @@ class Listing:
                 break
             for ea in func_ea:
                 self.set_type(ea, set('p'))
-                self.set_label(ea, f'proc_unused_{ea:06x}')
+                self.set_label(ea, f'unused_{ea:04x}')
                 self.disasm_proc(ea)
 
         # "декомпиляция"
