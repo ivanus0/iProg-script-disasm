@@ -119,9 +119,20 @@ def get_io_name(listing, io_id, output):
         return str(io_id)
 
 
-def set_device_label(listing, ea, name):
+def set_device_label(listing, ea, name, comment=None):
     if 'device_labels' in listing.dis.presets:
-        listing.dis.presets['device_labels'].append((ea, name))
+        listing.dis.presets['device_labels'].append((ea, name, comment))
+
+
+def add_global_emem_var(listing, emem_var, emem_idx):
+    emem = (emem_var, emem_idx)
+    if emem not in listing.dis.presets['global']['emem']:
+        listing.dis.presets['global']['emem'].append(emem)
+
+
+def add_global_str_idx(listing, str_idx):
+    if str_idx not in listing.dis.presets['global']['string']:
+        listing.dis.presets['global']['string'].append(str_idx)
 
 
 def decompile(listing: Listing, ea):
@@ -326,6 +337,7 @@ def decompile(listing: Listing, ea):
             if line2.instruction == 'SYS' and line2.arg(0) == 2:
                 line.set_comment('')
                 line2.set_comment(f'str_{line.arg(1)} = TMP;\n')
+                add_global_str_idx(listing, line.arg(1))
                 line = line.next()
                 continue
 
@@ -336,6 +348,7 @@ def decompile(listing: Listing, ea):
             if line2.instruction == 'SYS' and line2.arg(0) == 13:
                 line.set_comment('')
                 line2.set_comment(f'TMP += str_{line.arg(1)}')
+                add_global_str_idx(listing, line.arg(1))
                 line = line.next()
                 continue
 
@@ -767,7 +780,7 @@ def decompile(listing: Listing, ea):
                         dev_label = f'b_{line2.arg(1):04X}'
                         set_device_label(listing, line2.arg(1), dev_label)
                         a3 = line3.arg(1) >> 16
-                        line.set_comment('')
+                        line.set_comment(f'/* {host_label} is byte array */')
                         line2.set_comment(f'/* device.{dev_label} */')
                         line3.set_comment(f'/* ({a3} << 16) */')
                         line4.set_comment(f'block({host_label} = device.{dev_label}, {a3});\n')
@@ -812,10 +825,17 @@ def decompile(listing: Listing, ea):
                         dev_label = f'b_{line2.arg(1):04X}'
                         set_device_label(listing, line2.arg(1), dev_label)
                         a3 = line3.arg(1) >> 16
-                        line.set_comment('')
-                        line2.set_comment('')
+                        if a1.isdigit():
+                            a1l = int(a1) & 0x00FFFFFF
+                            a1 = f'{a1l} | 0x{int(a1) & 0xFF000000:08x}'
+                            line.set_comment(f'/* {a1} */')
+                            a1 = a1l
+                        else:
+                            line.set_comment('')
+                        line2.set_comment(f'/* device.{dev_label} is byte array */')
                         line3.set_comment('')
-                        line4.set_comment(f'block|memcopy(fbuf[{a1}] = device.{dev_label}, {a3});\n')
+                        line4.set_comment(f'block|memcopy(fbuf_?[{a1}] = device.{dev_label}, {a3});\n')
+                        # add_global_emem_var(listing, ?, ?)
                         line = line4.next()
                         continue
 
@@ -831,7 +851,8 @@ def decompile(listing: Listing, ea):
                         line.set_comment('')
                         line2.set_comment('')
                         line3.set_comment('')
-                        line4.set_comment(f'block(fbuf[R15] = device.{dev_label}, HWORD(R14));\n')
+                        line4.set_comment(f'block(fbuf_?[R15] = device.{dev_label}, HWORD(R14));\n')
+                        # add_global_emem_var(listing, ?, ?)
                         line = line4.next()
                         continue
 
@@ -874,7 +895,8 @@ def decompile(listing: Listing, ea):
                             line2.set_comment('')
                             line3.set_comment('')
                             line4.set_comment('')
-                            line5.set_comment(f'block|memcopy(device.{dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
+                            line5.set_comment(f'block|memcopy(device.{dev_label} = fbuf_?[{line2.arg_str(1)}], {a3});\n')
+                            # add_global_emem_var(listing, ?, ?)
                             line = line5.next()
                             continue
 
@@ -892,7 +914,8 @@ def decompile(listing: Listing, ea):
                         line.set_comment(f'/* device.{dev_label} */')
                         line2.set_comment('')
                         line3.set_comment(f'/* ({a3} << 16) */')
-                        line4.set_comment(f'block|memcopy(device.{dev_label} = fbuf[{line2.arg_str(1)}], {a3});\n')
+                        line4.set_comment(f'block|memcopy(device.{dev_label} = fbuf_?[{line2.arg_str(1)}], {a3});\n')
+                        # add_global_emem_var(listing, ?, ?)
                         line = line4.next()
                         continue
 
@@ -906,7 +929,8 @@ def decompile(listing: Listing, ea):
                     a3 = line2.arg_str(1)
                     line.set_comment('')
                     line2.set_comment('')
-                    line3.set_comment(f'block|memcopy({dev_label} = fbuf[R15], {a3});\n')
+                    line3.set_comment(f'block|memcopy({dev_label} = fbuf_?[R15], {a3});\n')
+                    # add_global_emem_var(listing, ?, ?)
                     line = line3.next()
                     continue
 
@@ -957,9 +981,11 @@ def decompile(listing: Listing, ea):
                     s = f'fbuf_{v1}'
                     line.set_comment(f'/* 0x80000000 | {v1} */')
                 else:
-                    s = f'fbuf_{v}'
+                    v1 = v
+                    s = f'fbuf_{v1}'
                     line.set_comment('')
                 line2.set_comment(f'{"SaveToFile" if line2.arg(0) == 30 else "LoadFromFile"}({s})\n')
+                add_global_emem_var(listing, s, v1)
                 line = line2.next()
                 continue
 
@@ -998,7 +1024,8 @@ def decompile(listing: Listing, ea):
                         line.set_comment('')
                         line2.set_comment('')
                         line3.set_comment('')
-                        line4.set_comment(f'{line4.arg_str(0)} = len(str_{line.arg_str(1)});\n')
+                        line4.set_comment(f'{line4.arg_str(0)} = len(str_{line.arg(1)});\n')
+                        add_global_str_idx(listing, line.arg(1))
                         line = line4.next()
                         continue
 
@@ -1017,7 +1044,8 @@ def decompile(listing: Listing, ea):
                             line2.set_comment('')
                             line3.set_comment('')
                             line4.set_comment('')
-                            line5.set_comment(f'{line5.arg_str(0)} = str{line2.arg_str(1)}[{line.arg_str(0)}];')
+                            line5.set_comment(f'{line5.arg_str(0)} = str_{line2.arg(1)}[{line.arg_str(0)}];')
+                            add_global_str_idx(listing, line2.arg(1))
                             line = line5.next()
                             continue
 
@@ -1112,7 +1140,9 @@ def decompile(listing: Listing, ea):
                     b = line3.arg(0)
                     idx = line2.arg(1)
                     v = line.arg(1)
-                    line3.set_comment(f'fbuf_{b}[{idx}] = {v};\n')
+                    s = f'fbuf_{b}'
+                    line3.set_comment(f'{s}[{idx}] = {v};\n')
+                    add_global_emem_var(listing, s, b)
                     line = line3.next()
                     continue
 
@@ -1120,7 +1150,19 @@ def decompile(listing: Listing, ea):
             b = line.arg(0)
             idx = line.arg_str(1)
             v = line.arg_str(2)
-            line.set_comment(f'fbuf_{b}[{idx}] = {v};\n')
+            s = f'fbuf_{b}'
+            line.set_comment(f'{s}[{idx}] = {v};\n')
+            add_global_emem_var(listing, s, b)
+            line = line.next()
+            continue
+
+        if line.instruction == 'LDEM':
+            b = line.arg(0)
+            v = line.arg_str(1)
+            idx = line.arg_str(2)
+            s = f'fbuf_{b}'
+            line.set_comment(f'{v} = {s}[{idx}];\n')
+            add_global_emem_var(listing, s, b)
             line = line.next()
             continue
 
@@ -1143,3 +1185,17 @@ def decompile(listing: Listing, ea):
         #
         # next line
         line = line.next()
+
+
+def decompile_post(listing: Listing):
+    # emem
+    for v, i in listing.dis.presets['global']['emem']:
+        listing.glob.append(f'emem {v}={i};')
+    if listing.dis.presets['global']['emem']:
+        listing.glob.append('')
+
+    # string
+    s = listing.dis.presets['global']['string']
+    if s:
+        listing.glob.append(f'string {', '.join(f'str_{i}' for i in range(max(s) + 1))};')
+        listing.glob.append('')

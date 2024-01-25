@@ -88,7 +88,7 @@ proc AUTH(){
 	
 	a = device.Ast_Adjust(0x3F);
 	
-	for(a = 0; a < 144; a++) eeprom[a] = 0xFF;   // ÑÐ¾Ð´ÐµÑ€Ð¶Ð¸Ð¼Ð¾Ðµ Ñ€ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€Ð° = 0xFF
+	for(a = 0; a < 144; a++) eeprom[a] = 0xFF;   // ñîäåðæèìîå ðåäàêòîðà = 0xFF
 	
 	a = device.Restart_Transponder();
 	
@@ -426,7 +426,7 @@ proc writeBlock10()
 	//device.pwr(0);
 	//return;
 	
-	if(error = 0)		// Ð½Ðµ Ð±Ñ‹Ð»Ð¾ Ð¾ÑˆÐ¸Ð±Ð¾Ðº? Ð¾Ð±Ð½Ð¾Ð²Ð»ÑÐµÐ¼ Ð²ÑÐµ Ð¿Ð¾Ð»Ñ
+	if(error = 0)		// íå áûëî îøèáîê? îáíîâëÿåì âñå ïîëÿ
 	{
 		print("\n	update.. ");
 		ResetCtrl_Block10();
@@ -570,7 +570,7 @@ proc writeUserMem()
 	//device.pwr(0);
 	//return;
 	
-	if(error = 0)		// Ð½Ðµ Ð±Ñ‹Ð»Ð¾ Ð¾ÑˆÐ¸Ð±Ð¾Ðº? Ð¾Ð±Ð½Ð¾Ð²Ð»ÑÐµÐ¼ Ð²ÑÐµ Ð¿Ð¾Ð»Ñ
+	if(error = 0)		// íå áûëî îøèáîê? îáíîâëÿåì âñå ïîëÿ
 	{
 		print("\n	update.. ");
 		ResetCtrl_Block10();
@@ -616,7 +616,7 @@ $DEVICE
 #define	READ_PHASE			0x08
 #define	SET_SAMPLING_TIME	0x80
 
-#define	FST_TMR_PER_T0	48			// Ð£Ð²ÐµÐ»Ð¸Ñ‡ÐµÐ½Ð¸Ðµ ÑÑ‡ÐµÑ‚Ñ‡Ð¸ÐºÐ° FAST_TIMER Ð·Ð° Ð²Ñ€ÐµÐ¼Ñ T0, Ð¿Ñ€Ð¸ 
+#define	FST_TMR_PER_T0	48			// Óâåëè÷åíèå ñ÷åò÷èêà FAST_TIMER çà âðåìÿ T0, ïðè 
 
 dword dbgu[1000];
 dword dbg_n;
@@ -641,14 +641,14 @@ proc pwr(a)
     if(a)   PWM0 = (4000000 << 7) | 64;
 }
 
-// Ð¾Ñ‚Ð¿Ñ€Ð°Ð²ÐºÐ° ÐºÐ¾Ð¼Ð°Ð½Ð´Ñ‹ Ð² Ñ‚Ñ€Ð°Ð½ÑÐ¸Ð²ÐµÑ€
+// îòïðàâêà êîìàíäû â òðàíñèâåð
 proc HTRCCmd(cmd)
 {
     var i, cnt, mem;
 
-    DIN_L; SCLK_L; SCLK_H; DIN_H; SCLK_L; DIN_L;    // Ð¸Ð½Ð¸Ñ†Ð¸Ð°Ð»Ð¸Ð·Ð°Ñ†Ð¸Ñ
+    DIN_L; SCLK_L; SCLK_H; DIN_H; SCLK_L; DIN_L;    // èíèöèàëèçàöèÿ
     
-    if((cmd & 0xC0) = 0xC0) cnt = 3;        // ÐµÑÐ»Ð¸ Ð´Ð²Ð° ÑÑ‚Ð°Ñ€ÑˆÐ¸Ñ… Ð±Ð¸Ñ‚Ð° ÐºÐ¾Ð¼Ð°Ð½Ð´Ñ‹ ÑƒÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ñ‹, Ñ‚Ð¾ ÐºÐ¾Ð¼Ð°Ð½Ð´Ð° Ñ‚Ñ€ÐµÑ…Ð±Ð¸Ñ‚Ð½Ð°Ñ
+    if((cmd & 0xC0) = 0xC0) cnt = 3;        // åñëè äâà ñòàðøèõ áèòà êîìàíäû óñòàíîâëåíû, òî êîìàíäà òðåõáèòíàÿ
     else cnt = 8;
 
     mem = cmd & 0xF0;
@@ -662,7 +662,7 @@ proc HTRCCmd(cmd)
     }
     DIN_L; 
     if(cnt = 3) return;  
-    if(mem = 0)                         // ÐµÑÐ»Ð¸ ÑÑ‚Ð°Ñ€ÑˆÐ¸Ðµ 4 Ð±Ð¸Ñ‚Ð° ÐºÐ¾Ð¼Ð°Ð½Ð´Ñ‹ Ñ€Ð°Ð²Ð½Ñ‹ Ð½ÑƒÐ»ÑŽ, Ñ‚Ð¾ ÐºÐ¾Ð¼Ð°Ð½Ð´Ð° Ð¸Ð¼ÐµÐµÑ‚ Ð¾Ñ‚Ð²ÐµÑ‚
+    if(mem = 0)                         // åñëè ñòàðøèå 4 áèòà êîìàíäû ðàâíû íóëþ, òî êîìàíäà èìååò îòâåò
     {
         for(i = 0; i < 8; i++)
         {
@@ -675,7 +675,7 @@ proc HTRCCmd(cmd)
     }
 }
 
-// Ð¸Ð½Ð¸Ñ†Ð¸Ð°Ð»Ð¸Ð·Ð°Ñ†Ð¸Ñ Ñ‚Ñ€Ð°Ð½ÑÐ¸Ð²ÐµÑ€Ð° 
+// èíèöèàëèçàöèÿ òðàíñèâåðà 
 proc InitHTRC()
 {
     var a;
@@ -684,7 +684,7 @@ proc InitHTRC()
 	HTRCcmd(SET_CONFIG_PAGE + 0x10 + 0x00);
 	HTRCcmd(SET_CONFIG_PAGE + 0x20 + 0x00);
 	HTRCcmd(SET_CONFIG_PAGE + 0x30 + 0x00);
-	// Ñ‡Ð¸Ñ‚Ð°ÐµÐ¼ Ð¾Ð±Ñ€Ð°Ñ‚Ð½Ð¾ Ð½ÑƒÐ»ÐµÐ²ÑƒÑŽ ÑÑ‚Ñ€Ð°Ð½Ð¸Ñ†Ñƒ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð¿Ñ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ ÑÐ²ÑÐ·ÑŒ Ñ Ñ‚Ñ€Ð°Ð½ÑÐ¸Ð²ÐµÑ€Ð¾Ð¼
+	// ÷èòàåì îáðàòíî íóëåâóþ ñòðàíèöó, ÷òîáû ïðîâåðèòü ñâÿçü ñ òðàíñèâåðîì
 	a = HTRCcmd(GET_CONFIG_PAGE + 0x00);  if((a & 0x0F) != 0x02)	return (1);
 	//a = HTRCcmd(GET_CONFIG_PAGE + 0x01);  if((a & 0x0F) != 0x00)	return (1);
 
@@ -716,7 +716,7 @@ proc Ast_Adjust(offset)
 
 proc InitFastTimer()
 {
-	FAST_TIMER_CLOCK = 1;		// 6 ÐœÐ“Ñ†
+	FAST_TIMER_CLOCK = 1;		// 6 ÌÃö
 }
 
 proc InitCapture()
@@ -745,7 +745,7 @@ proc InitCapture()
 	
 	//dec_st = 0;
 	
-    IRQ_ENABLE = 1;		// Ñ€Ð°Ð·Ñ€ÐµÑˆÐ°ÐµÐ¼ Ð¿Ñ€ÐµÑ€Ñ‹Ð²Ð°Ð½Ð¸Ðµ
+    IRQ_ENABLE = 1;		// ðàçðåøàåì ïðåðûâàíèå
 }
 
 proc DeInitCapture()
@@ -763,7 +763,7 @@ proc SearchLIW()	// 16 64 32 48
 	result = 0;
 	dec_st = 0;
 	
-	a = IRQ_FLAG;	// Ð¡Ð±Ñ€Ð°ÑÑ‹Ð²Ð°ÐµÐ¼ Ñ„Ð»Ð°Ð³ Ð¿Ñ€ÐµÑ€Ñ‹Ð²Ð°Ð½Ð¸Ñ!!!
+	a = IRQ_FLAG;	// Ñáðàñûâàåì ôëàã ïðåðûâàíèÿ!!!
 	
 	for(;;)
 	{
@@ -821,9 +821,9 @@ proc Read32BitManch()
 	tag_data = 0;
 	
 	// Wait
-	t = 171 * FST_TMR_PER_T0;	// ÐžÑ‚ÐºÐ°Ð»Ð¸Ð±Ñ€Ð¾Ð²Ð°Ð½Ð¾!!! Ð¡ÐµÐ¹Ñ‡Ð°Ñ Ð¾Ñ‚ 164 Ð´Ð¾ 178.
+	t = 171 * FST_TMR_PER_T0;	// Îòêàëèáðîâàíî!!! Ñåé÷àñ îò 164 äî 178.
 	while(FAST_TIMER < t);
-	a = IRQ_FLAG;				// Ð¿ÐµÑ€ÐµÐ´ Ð½Ð°Ñ‡Ð°Ð»Ð¾Ð¼ ÑÐ±Ñ€Ð°ÑÑ‹Ð²Ð°ÐµÐ¼ Ñ„Ð»Ð°Ð³ Ð¿Ñ€ÐµÑ€Ñ‹Ð²Ð°Ð½Ð¸Ñ
+	a = IRQ_FLAG;				// ïåðåä íà÷àëîì ñáðàñûâàåì ôëàã ïðåðûâàíèÿ
 	a = 0;
 	
 	for(;;)
@@ -838,7 +838,7 @@ proc Read32BitManch()
 		dbg_n++;
 		//continue;
 		// Read Header
-		if(dec_st = 0)	// Ñ‡Ð¸Ñ‚Ð°ÐµÐ¼ ÐµÐ´ÐµÐ½Ð¸Ñ†Ñ‹
+		if(dec_st = 0)	// ÷èòàåì åäåíèöû
 		{
 			if(p = 0)
 			{
@@ -846,12 +846,12 @@ proc Read32BitManch()
 			}
 			break;
 		}
-		if(dec_st = 1)	// Ð¿ÐµÑ€ÐµÑ…Ð¾Ð´ Ð½Ð° Ð½ÑƒÐ»Ð¸
+		if(dec_st = 1)	// ïåðåõîä íà íóëè
 		{
 			if(p = 1){ dec_st = 2; continue; }
 			break;
 		}
-		if(dec_st = 2)	// Ñ‡Ð¸Ñ‚Ð°ÐµÐ¼ Ð½ÑƒÐ»Ð¸
+		if(dec_st = 2)	// ÷èòàåì íóëè
 		{
 			if(p = 0)
 			{
@@ -859,7 +859,7 @@ proc Read32BitManch()
 			}
 			break;
 		}
-		if(dec_st = 3)	// Ð¿ÐµÑ€ÐµÑ…Ð¾Ð´ Ð½Ð° Ð´Ð°Ð½Ð½Ñ‹Ðµ
+		if(dec_st = 3)	// ïåðåõîä íà äàííûå
 		{
 			if(p = 0){ dec_st = 4; continue; }
 			if(p = 1){ level ^= 1; dec_st = 5; continue; }
@@ -924,11 +924,11 @@ proc ReadBlock(block)	// block 0 - User Memory, block 1 - ID
 	// Prepare Stream
 	if(block = 0)
 	{
-		EncodeBits(0x14000000, 6);		// Ð“ÐµÐ½ÐµÑ€Ð¸Ñ€ÑƒÐµÐ¼ ÐºÐ¾Ð¼Ð°Ð½Ð´Ñƒ Ñ‡Ñ‚ÐµÐ½Ð¸Ðµ UM Ð±Ð»Ð¾ÐºÐ°
+		EncodeBits(0x14000000, 6);		// Ãåíåðèðóåì êîìàíäó ÷òåíèå UM áëîêà
 	}
 	else
 	{
-		EncodeBits(0x0C000000, 6);		// Ð“ÐµÐ½ÐµÑ€Ð¸Ñ€ÑƒÐµÐ¼ ÐºÐ¾Ð¼Ð°Ð½Ð´Ñƒ Ñ‡Ñ‚ÐµÐ½Ð¸Ñ ID Ð±Ð»Ð¾ÐºÐ°
+		EncodeBits(0x0C000000, 6);		// Ãåíåðèðóåì êîìàíäó ÷òåíèÿ ID áëîêà
 	}
 	
 	InitCapture();
@@ -936,13 +936,13 @@ proc ReadBlock(block)	// block 0 - User Memory, block 1 - ID
 	if(a = 0){ DeInitCapture(); return (0); }
 	DeInitCapture();
 	
-	// WRITE_TAG( Ð¿Ñ€Ð¾Ð·Ñ€Ð°Ñ‡Ð½Ñ‹Ð¹ Ñ€ÐµÐ¶Ð¸Ð¼ )
+	// WRITE_TAG( ïðîçðà÷íûé ðåæèì )
 	HTRCcmd(0xC0);
 	DIN_L;
 	
 	
 	// Wait
-	t = 110 * FST_TMR_PER_T0;	// ÐžÑ‚ÐºÐ°Ð»Ð¸Ð±Ñ€Ð¾Ð²Ð°Ð½Ð¾!!! Ð¡ÐµÐ¹Ñ‡Ð°Ñ Ð¾Ñ‚ 100 Ð´Ð¾ 130.
+	t = 110 * FST_TMR_PER_T0;	// Îòêàëèáðîâàíî!!! Ñåé÷àñ îò 100 äî 130.
 	while(FAST_TIMER < t);
 	
 	a = sLen * 8;
@@ -989,7 +989,7 @@ proc EncodeWriteCmd(Adr, HByte, LByte)
 {
 	var i, data, cparity;
 	
-	EncodeBits(0x28000000, 6);	// Ð“ÐµÐ½ÐµÑ€Ð¸Ñ€ÑƒÐµÐ¼ ÐºÐ¾Ð¼Ð°Ð½Ð´Ñƒ Ð·Ð°Ð¿Ð¸ÑÐ¸ ÑÐ»Ð¾Ð²Ð°
+	EncodeBits(0x28000000, 6);	// Ãåíåðèðóåì êîìàíäó çàïèñè ñëîâà
 	
 	Adr = ((Adr & 0xF) << 28);
 	EncodeBitsWithParity(Adr, 4);
@@ -1020,7 +1020,7 @@ proc CheckACK()	// 16 16 48 16 48 16
 	result = 0;
 	dec_st = 0;
 	
-	a = IRQ_FLAG;	// Ð¡Ð±Ñ€Ð°ÑÑ‹Ð²Ð°ÐµÐ¼ Ñ„Ð»Ð°Ð³ Ð¿Ñ€ÐµÑ€Ñ‹Ð²Ð°Ð½Ð¸Ñ!!!
+	a = IRQ_FLAG;	// Ñáðàñûâàåì ôëàã ïðåðûâàíèÿ!!!
 	
 	for(;;)
 	{
@@ -1033,30 +1033,30 @@ proc CheckACK()	// 16 16 48 16 48 16
 		dbgu[dbg_n] = p;
 		dbg_n++;
 	
-		if(dec_st = 0)	// Ð¶Ð´ÐµÐ¼ Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
+		if(dec_st = 0)	// æäåì èìïóëüñ 16 * t0
 		{
-			if(p = 0){ dec_st = 1; continue; }	// Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
-			break;	// Ð¾ÑˆÐ¸Ð±ÐºÐ°
+			if(p = 0){ dec_st = 1; continue; }	// èìïóëüñ 16 * t0
+			break;	// îøèáêà
 		}
-		if(dec_st = 1)	// Ð¶Ð´ÐµÐ¼ Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 48 * t0
+		if(dec_st = 1)	// æäåì èìïóëüñ 48 * t0
 		{
-			if(p = 2){ dec_st = 2; continue; }	// Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 48 * t0
-			break;	// Ð¾ÑˆÐ¸Ð±ÐºÐ°
+			if(p = 2){ dec_st = 2; continue; }	// èìïóëüñ 48 * t0
+			break;	// îøèáêà
 		}
-		if(dec_st = 2)	// Ð¶Ð´ÐµÐ¼ Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
+		if(dec_st = 2)	// æäåì èìïóëüñ 16 * t0
 		{
-			if(p = 0){ dec_st = 3; continue; }	// Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
-			break;	// Ð¾ÑˆÐ¸Ð±ÐºÐ°
+			if(p = 0){ dec_st = 3; continue; }	// èìïóëüñ 16 * t0
+			break;	// îøèáêà
 		}
-		if(dec_st = 3)	// Ð¶Ð´ÐµÐ¼ Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 48 * t0
+		if(dec_st = 3)	// æäåì èìïóëüñ 48 * t0
 		{
-			if(p = 2){ dec_st = 4; continue; }	// Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 48 * t0
-			break;	// Ð¾ÑˆÐ¸Ð±ÐºÐ°
+			if(p = 2){ dec_st = 4; continue; }	// èìïóëüñ 48 * t0
+			break;	// îøèáêà
 		}
-		if(dec_st = 4)	// Ð¶Ð´ÐµÐ¼ Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
+		if(dec_st = 4)	// æäåì èìïóëüñ 16 * t0
 		{
-			if(p = 0){ result = 1; break; }	// Ð¸Ð¼Ð¿ÑƒÐ»ÑŒÑ 16 * t0
-			break;	// Ð¾ÑˆÐ¸Ð±ÐºÐ°
+			if(p = 0){ result = 1; break; }	// èìïóëüñ 16 * t0
+			break;	// îøèáêà
 		}
 	}
 	
@@ -1079,12 +1079,12 @@ proc WriteWord(Adr, HByte, LByte)
 	if(a = 0){ DeInitCapture(); return (0); }
 	DeInitCapture();
 	
-	// WRITE_TAG( Ð¿Ñ€Ð¾Ð·Ñ€Ð°Ñ‡Ð½Ñ‹Ð¹ Ñ€ÐµÐ¶Ð¸Ð¼ )
+	// WRITE_TAG( ïðîçðà÷íûé ðåæèì )
 	HTRCcmd(0xC0);
 	DIN_L;
 	
 	// Wait
-	t = 113 * FST_TMR_PER_T0;	// ÐžÑ‚ÐºÐ°Ð»Ð¸Ð±Ñ€Ð¾Ð²Ð°Ð½Ð¾!!! Ð¡ÐµÐ¹Ñ‡Ð°Ñ Ð¾Ñ‚ 100 Ð´Ð¾ 130.
+	t = 113 * FST_TMR_PER_T0;	// Îòêàëèáðîâàíî!!! Ñåé÷àñ îò 100 äî 130.
 	while(FAST_TIMER < t);
 	
 	a = sLen * 8;
@@ -1094,7 +1094,7 @@ proc WriteWord(Adr, HByte, LByte)
 	
 	InitCapture();
 	// Wait
-	t = 183 * FST_TMR_PER_T0;	// ÐžÑ‚ÐºÐ°Ð»Ð¸Ð±Ñ€Ð¾Ð²Ð°Ð½Ð¾!!! Ð¡ÐµÐ¹Ñ‡Ð°Ñ Ð¾Ñ‚ 176 Ð´Ð¾ 192.
+	t = 183 * FST_TMR_PER_T0;	// Îòêàëèáðîâàíî!!! Ñåé÷àñ îò 176 äî 192.
 	while(FAST_TIMER < t);
 	
 	a = CheckACK();

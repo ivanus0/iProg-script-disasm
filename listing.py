@@ -76,6 +76,7 @@ class Line:
 
 class Listing:
     def __init__(self):
+        self.glob = []
         self.lines = {}
         self.mem = None
         self.dis = None
@@ -221,8 +222,10 @@ class Listing:
 
         # Mark known labels
         if presets:
-            for ea, name in presets.get('labels', []):
+            for ea, name, comment in presets.get('labels', []):
                 self.set_label(ea, name)
+                if comment:
+                    self.set_comment(ea, comment)
 
         # дизассемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
         # тут в listing точки входа в процедуры и ссылки на глобальные переменные
@@ -258,7 +261,7 @@ class Listing:
         return lst
 
     def generate(self):
-        lst = []
+        lst = self.glob.copy()
         if self.mem is not None:
             a_next = self.line(self.mem.mem_offset)
 

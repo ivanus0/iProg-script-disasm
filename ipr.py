@@ -1,7 +1,7 @@
 from stream import STREAM, MemoryNotDefined
 from decode import decode_devicebytecode
 from listing import Listing
-from ipr_decomp import decompile
+from ipr_decomp import decompile, decompile_post
 
 
 class DisassemblerIPR:
@@ -135,7 +135,6 @@ class DisassemblerIPR:
         0x70: ['PUSHB', 'BNN'],
         0x71: ['EOUT', 'RRN'],
         0x72: ['EIN', 'RRN'],
-        0x73: ['', 'BNN'],  # ?
     }
 
     def __init__(self, listing: Listing, presets: dict):
@@ -377,16 +376,18 @@ class DisassemblerIPR:
 
         except MemoryNotDefined as e:
             print(hex(ea), e)
+            # mark bad instruction
+            set_command('<invalid>', [])
+            self.listing.set_type(ea, set('b'))
 
         return addresses
 
     def postprocess(self):
+        self.presets['global'] = {'emem': [], 'string': []}
         func_ea = self.listing.get_addresses(set('pc'))
         for f in func_ea:
-            self.postprocess_proc(f)
-
-    def postprocess_proc(self, ea):
-        decompile(self.listing, ea)
+            decompile(self.listing, f)
+        decompile_post(self.listing)
 
 
 class IPR:
@@ -432,6 +433,9 @@ class IPR:
         return lst
 
     def get_ipr(self):
+        if self.scriptdevice is None:
+            return None
+
         ipr = []
         ipr.extend(self.stream.get_block(self.b_menu_start, self.b_menu_end))
         ipr.extend(self.stream.get_block(self.b_toolbar_start, self.b_toolbar_end))
@@ -676,6 +680,7 @@ class IPR:
                         self.host_listing.set_label(proc, label)
                         self.host_listing.set_type(proc, set('p'))
                         f['proc'] = label
+                    self.host_listing.set_label(name_id, name)
                     code.append(f'{" "*pad}List({join_fields(f)})')
 
                 elif t == b'L':
@@ -776,7 +781,7 @@ class IPR:
                         'left': left,
                         'top': top,
                         'width': width,
-                        'items': items
+                        'items': f'"{items}"'
                     }
                     code.append(f'{" "*pad}Text({join_fields(f)})')
 
@@ -901,9 +906,9 @@ class IPR:
         code.append('')
         code.append('$DEVICE')
 
-        # # fix this
-        device_bytecode.bin = decode_devicebytecode(device_bytecode.bin, crc)
-        if device_bytecode is not None:
+        decrypted_bin = decode_devicebytecode(device_bytecode.bin, crc)
+        if decrypted_bin is not None:
+            device_bytecode.bin = decrypted_bin
             self.scriptdevice = device_bytecode
             self.device_listing.set_mem(device_bytecode)
             code.extend(self.device_listing.disassemble(DisassemblerIPR, {
@@ -924,8 +929,12 @@ class IPR:
     def decompile(self):
         self.host_listing = Listing()
         self.device_listing = Listing()
-        self.decompile_menu()
-        self.decompile_toolbar()
-        self.decompile_editor()
-        self.decompile_window()
-        self.decompile_script()
+        try:
+            self.decompile_menu()
+            self.decompile_toolbar()
+            self.decompile_editor()
+            self.decompile_window()
+            self.decompile_script()
+        except (SyntaxError, MemoryNotDefined) as e:
+            print(e)
+            print('The file is corrupted')

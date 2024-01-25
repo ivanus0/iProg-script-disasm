@@ -1,0 +1,235 @@
+Menu
+    &Версия софта,version,5,F1
+EndMenu
+
+
+Editor
+{
+ (Caption="D_FLASH";size=32768;mode=8;bytes=16)
+ (Caption="EEE";size=4096;mode=8;bytes=16)
+}
+
+Window(caption=""; width=300; height=150; align=h)
+{
+    Text(caption="new Vin"; name=text_0000; left=380; top=50; width=175; items="hello world,Твою Мать!")
+    Button(caption="Make EEE"; left=5; top=20; width=100; height=25; proc=button_make_eee_0184)
+    Button(caption="Cheсk D_Flash"; left=5; top=50; width=100; height=25; proc=button_check_dflash_0252)
+    Button(caption="Get_Vin"; left=340; top=90; width=100; height=25; proc=button_get_vin_0162)
+    Button(caption="Set_Vin"; left=450; top=90; width=100; height=25; proc=button_set_vin_0046)
+    List(caption="Help "; name=list_0B42; left=180; top=20; width=100; value=0; items="--Help--","help_script","about_9s12XEx","about_FRM3"; proc=list_help_0310)
+    Label(caption="Vin : "; name=label_0001; left=340; top=29; width=0; value=0)
+    Label(caption=" "; name=label_0002; left=365; top=29; width=0; value=0)
+    Group(caption="FRM3 DFlash->EEE "; left=10; top=95; width=270; height=50)
+    {
+        Label(caption="© by megaServis (2017)"; name=label_0003; left=65; top=29; width=0; value=0)
+    }
+}
+
+
+$HOST
+
+#define MEM_DFLASH_SIZE	32768
+#define MEM_EEE_SIZE	4096
+
+emem dflash=0;
+emem eee=1;
+
+string str0, str1;
+
+proc version(){
+	var i;
+	i = SW_VERSION;
+	mbox("Версия софта " +#i.i, 0);
+}
+
+proc prc_001F(offset, length){
+	var i;
+	for(i = 0; i < length; i++) {
+		eee[offset+i] = str1[i];
+	}
+}
+
+proc button_set_vin_0046(){
+	var v0, temp;
+
+	str1 = text_0000;
+	v0 = len(str1);
+	if(v0 != 17) {
+		if(WINDOW = 0) ShowWindow;
+		print(" Vin должен содержать 17 символов!");
+	}
+
+	if(v0 != 17) {
+		temp = mbox("  Vin должен содержать 17 символов! Do you confirm set new VIN?", 1);
+		if(temp = 0){
+			print("\nSet new VIN canceled by user.");
+			return;
+		}
+		prc_001F(0x0FD3, 17);
+		if(WINDOW = 0) ShowWindow;
+		print("\n new VIN writed to EEE bufer");
+		print("\n new VIN:" + str1);
+		return;
+	}
+
+	if(v0 = 17) {
+		temp = mbox("set new VIN?", 1);
+		if(temp = 0) {
+			print("\nSet new VIN canceled by user.");
+			return;
+		}
+		prc_001F(0x0FD3, 17);
+		if(WINDOW = 0) ShowWindow;
+		print("\n new VIN writed to EEE bufer");
+		print("\n new VIN: " + str1);
+	}
+}
+
+proc prc_0127(a0, a1){
+	var i, temp;
+
+	str0 = "";
+	for(i = 0; i < a1; i++) {
+		temp = eee[a0+i];
+		str0 = str0 + #c.temp;
+	}
+}
+
+proc button_get_vin_0162(){
+	prc_0127(0x0FD3, 17);
+	label_0002 = str0;
+}
+
+
+proc button_make_eee_0184(){
+	var i, v1, v2, v3, v4, j;
+
+	v3 = 0xB800;
+	j = 0;
+	v4 = 0;
+	if(WINDOW = 0) ShowWindow;
+	print("\n  Separating records of ЕЕЕ...");
+	print("\n  Partition of DataFlash mast be:");
+	print("\n  DFPART==0x0000  (0Kb (0 *128 words) user Dataflesh)");
+	print("\n  ERPART==0x0010  (4Kb (16*128 words) emulated eeprom)");
+	PBPOS = 0;
+	PBMAX = MEM_EEE_SIZE/2;
+	while(j < MEM_EEE_SIZE/2) {
+		for(i = 0; i < MEM_DFLASH_SIZE; i = i+4) {
+			v1 = dflash[i];
+			v2 = dflash[i+1];
+			v1 = v1 << 8;
+			v2 = v2 | v1;
+			if(v2 = v3+j) {
+				v1 = dflash[i+2];
+				v2 = dflash[i+3];
+				eee[j*2] = v1;
+				eee[j*2+1] = v2;
+				i = 0;
+				v4 = v4 + 2;
+				break;
+			}
+		}
+		j = j +1;
+		PBPOS = j;
+	}
+	print("\n GoTovo");
+	button_get_vin_0162();
+}
+
+
+proc button_check_dflash_0252(){
+	var i, v1, v2, v3, v4, j;
+
+	v3 = 0xB800;
+	j = 0;
+	v4 = 0;
+	if(WINDOW = 0) ShowWindow;
+	while(j < 1) {
+		for(i = 0; i < MEM_DFLASH_SIZE; i = i + 4) {
+			v1 = dflash[i];
+			v2 = dflash[i+1];
+			v1 = v1 << 8;
+			v2 = v2 | v1;
+			if(v2 = v3+j) {
+				v4 = 85;
+				v1 = dflash[i + 2];
+				v2 = dflash[i + 3];
+				v1 = v1 << 8;
+				v2 = v2 | v1;
+				if(v2 = 0xDEAD) {
+					print("\nПохож на нормальный D_flash, все не проверял, но");
+					print("\nпервые записи ЕЕЕ и атрибуты секторов D_flash в норме");
+					break;
+				} else {
+					print("\nFайл  можно выбросить!");
+				}
+				break;
+			}
+		}
+		j += 1;
+	}
+
+	if(v4=0) {
+		print("\nDas is niht DataFlash!");
+		return;
+	}
+
+	print("\nГотово");
+}
+
+proc list_help_0310(){
+
+	if(list_0B42=0) {
+		if(WINDOW)
+			CloseWindow;
+	}
+
+	if(list_0B42 = 1) {
+		if(WINDOW = 0) ShowWindow;
+		print("\n 1 -загрузите, считанный подходящим прогером,");
+		print("\n    файл DataFlash *.bin в D_Flash редактор");
+		print("\n 2 - нажмите Make EEE, дождитесь завершения процедуры");
+		print("\n	  (активный D_Flash редактор) ");
+		print("\n 3 - сохраните содержимое редактора  ЕЕЕ в файл .bin ");
+		print("\n	             Good Luck! ");
+	}
+
+	if(list_0B42 = 2) {
+		if(WINDOW = 0) ShowWindow;
+		print("\n  (9s12xeq384) ");
+		print("\n Please see Freescale application note AN3490");
+	}
+
+	if(list_0B42 = 3) {
+		if(WINDOW = 0) ShowWindow;
+		print("\n (FRM3) ");
+		print("\n        MCU: mc9s12xeq384mag  3M25J  qfp144");
+		print("\n В блочке слетает разделение Dflash, при этом блок не диагностится,");
+		print("\n не работают фары, поворотники и т.д.. Но при этом появляется");
+		print("\n возмохность читать все 32kБ  Dflash, а спомощью данной программки");
+		print("\n <собрать> область эмуляции еепром		");
+		print("\n Поэтому, для ремонта достаточно: прочитать Dflash, sobrat ЕЕЕ,");
+		print("\n разделить Dflash (Full Partition) и записать ЕЕЕ ");
+		print("\n Все! блочек снова живой и <родной> для данной машины ");
+		print("\n Для разных прогеров интерфейс ползователя разнится, но в целом");
+		print("\n сценарий таков:");
+		print("\n * ");
+		print("\n 1 - read dataFlash safe it *.bin format and make EEE");
+		print("\n 2 - read partition (usually   0xFFFF 0xFFFF)");
+		print("\n     change to 0x0000 0x0010 value and write it");
+		print("\n 3 - open EEE area  load stored EEE file and write it");
+		print("\n *");
+		print("\n *  ");
+		print("\n                 Mast be OK. Good luk!!!");
+	}
+}
+
+
+$DEVICE
+
+byte unused[291];
+
+proc unused_000() {
+	return(RANDOM);
+}
