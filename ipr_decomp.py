@@ -1197,5 +1197,6 @@ def decompile_post(listing: Listing):
     # string
     s = listing.dis.presets['global']['string']
     if s:
-        listing.glob.append(f'string {', '.join(f'str_{i}' for i in range(max(s) + 1))};')
+        str_vars = ', '.join(f'str_{i}' for i in range(max(s) + 1))
+        listing.glob.append(f'string {str_vars};')
         listing.glob.append('')
