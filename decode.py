@@ -26,7 +26,7 @@ def crc16_1021(data: bytearray):
     return crc & 0xFFFF
 
 
-def getSN():
+def get_sn():
     sn_encoded = 0x69EB7BDF  # sn == 1
     # sn_encoded = 0x23b9318D     # sn == 19
     # sn_encoded = 0x0f6bd109     # sn == 777 ?? не сходится...
@@ -60,7 +60,7 @@ def decode_devicebytecode(data, crc):
 
     r = decode_v2(data, crc)
     if r is not None:
-        print(f"## device bytecode is DES encoded (iprog sn={getSN()})")
+        print(f"## device bytecode is DES encoded (iprog sn={get_sn()})")
         return r
 
     print("bad bytecode or unknown encoding")
@@ -70,7 +70,7 @@ def decode_devicebytecode(data, crc):
 def decode_v1(data, crc):
     # Закодирован
     # v1
-    tbl1 = [0x11, 0x22, 0x33, 0x14, 0x25, 0x36, 0x17, 0x28, 0x39, 0x1A, 0x2B, 0x3C, 0x1D, 0x2E, 0x3F, 0x35]
+    tbl1 = (0x11, 0x22, 0x33, 0x14, 0x25, 0x36, 0x17, 0x28, 0x39, 0x1A, 0x2B, 0x3C, 0x1D, 0x2E, 0x3F, 0x35)
     datalen = len(data)
     data2 = list(data)
     crcpad = [0] * 64
@@ -78,20 +78,20 @@ def decode_v1(data, crc):
     crcpad[1] = crc & 0xFF
     data2 += crcpad
 
-    sn = getSN()
-    X = tbl1[sn & 0x0F]
+    sn = get_sn()
+    x = tbl1[sn & 0x0F]
 
     data2[datalen] ^= data2[0]
     data2[datalen+1] ^= data2[1]
 
-    Z = (sn >> 8) ^ sn ^ data2[datalen] ^ data2[datalen+1]
+    z = (sn >> 8) ^ sn ^ data2[datalen] ^ data2[datalen+1]
 
     buf = [0] * 64
     for p in range(0, datalen, 64):
 
         for i in range(64):
-            buf[i ^ (X & 0xFF)] = data2[p + i] ^ (Z & 0xFF)
-            Z += i
+            buf[i ^ (x & 0xFF)] = data2[p + i] ^ (z & 0xFF)
+            z += i
         for i in range(64):
             data2[p + i] = buf[i]
 
@@ -107,20 +107,20 @@ def decode_v2(data, crc):
     # Закодирован DES
     # v2
 
-    def getXYZ(key):
+    def get_xyz(sn):
         result = 0
         for i in range(32):
-            if key & 0x80000000 == 0:
+            if sn & 0x80000000 == 0:
                 result = (result ^ 0x8437A5BE) * 0x11
             else:
                 result = (result * 0x0B) ^ (result * 0xB0000)
-            key <<= 1
+            sn <<= 1
         return result & 0xFFFFFFFF
 
     if len(data) % 8:
         return None
 
-    k = getXYZ(getSN())
+    k = get_xyz(get_sn())
 
     # DES ECB
     key = struct.pack('>II', k, k ^ 0xA5A5A5A5)
@@ -145,30 +145,28 @@ def decode_v2(data, crc):
 
 def decode_cal(data):
     # декодер .cal
-    tbl1 = [0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05]
+    tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
     datalen = len(data)-32
     # размер data должен быть кратен 32байт
     if datalen % 32:
         # Для декомпиляции некодированного дампа
         return bytearray(data)
 
-    # data2 = list(data)
-    sn = getSN()
-    X = tbl1[sn & 0x0F]
-    Z = (X * ((sn >> 8) ^ sn) & 0xFF) ^ data[datalen] ^ data[datalen + 1]
+    sn = get_sn()
+    x = tbl1[sn & 0x0F]
+    z = (x * ((sn >> 8) ^ sn) & 0xFF) ^ data[datalen] ^ data[datalen + 1]
     buf = [0] * 32
-    data2 = data[:datalen]
+    data2 = bytearray(data[:datalen])
     for p in range(0, datalen, 32):
-
         for i in range(32):
-            buf[i ^ X] = data2[p + i] ^ (Z & 0xFF)
-            Z = (Z + 0x55) & 0xFFFFFFFF
+            buf[i ^ x] = data2[p + i] ^ (z & 0xFF)
+            z = (z + 0x55) & 0xFFFFFFFF
         for i in range(32):
             data2[p + i] = buf[i]
 
     crc = data[datalen] << 8 | data[datalen + 1]
     if crc == crc16_1021(data2):
-        return bytearray(data2)
+        return data2
     else:
         # Для декомпиляции некодированного дампа
         return bytearray(data)

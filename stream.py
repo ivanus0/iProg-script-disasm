@@ -15,32 +15,28 @@ class STREAM:
         self.mem_offset = 0     # соответсвующее смещение в памяти
         self.file_offset = 0    # соответсвующее смещение в файле
 
-    def set_bin(self, bin, mem_offset=0):
-        self.bin = bin
-        self.len = len(bin)
+    def set_binary(self, binary, mem_offset=0):
+        self.bin = binary
+        self.len = len(binary)
         self.pos = mem_offset
         self.mem_offset = mem_offset
         self.file_offset = 0
 
-    def load_bin(self, filename, mem_offset=0):
+    def load_binary(self, filename, mem_offset=0):
         with open(filename, 'rb') as f:
-            self.set_bin(f.read(), mem_offset)
-            f.close()
+            self.set_binary(f.read(), mem_offset)
 
     def load_hex(self, filename, mem_offset=0):
         with open(filename, 'r') as f:
             content = f.read()
-            f.close()
-            content = content.replace("\n", "")
-            self.set_bin([int(content[i: i+2], 16) for i in range(0, len(content), 2)], mem_offset)
+            self.set_binary(bytes.fromhex(content), mem_offset)
 
     def get_all(self):
-        result = self.bin[0:self.len]
-        return result
+        return self.bin[0:self.len] if self.bin is not None else None
 
     def get_block(self, start, end):
         length = end-start
-        p = self.__get_abspos(start, length)
+        p = self.__get_abs_pos(start, length)
         result = self.bin[p:p+length]
         return result
 
@@ -53,32 +49,32 @@ class STREAM:
             return None
         return p
 
-    def __get_abspos(self, pos, length):
+    def __get_abs_pos(self, pos, length):
         p = self.__is_defined(pos, length)
         if p is None:
             raise MemoryNotDefined(pos, length, pos-self.mem_offset+self.file_offset)
         return p
 
     def __read(self, fmt, length):
-        p = self.__get_abspos(self.pos, length)
+        p = self.__get_abs_pos(self.pos, length)
         result = unpack(fmt, self.bin[p:p+length])
         self.pos += length
         return result[0]
 
     def peek_char(self):
-        p = self.__get_abspos(self.pos, 1)
+        p = self.__get_abs_pos(self.pos, 1)
         return unpack('c', self.bin[p:p + 1])[0]
 
     def read_block(self, length):
-        p = self.__get_abspos(self.pos, length)
+        p = self.__get_abs_pos(self.pos, length)
         result = self.bin[p:p+length]
         self.pos += length
         return result
 
     def read_stream(self, length):
         result = STREAM()
-        p = self.__get_abspos(self.pos, length)
-        result.set_bin(self.bin[p:p+length])
+        p = self.__get_abs_pos(self.pos, length)
+        result.set_binary(self.bin[p:p+length])
         result.file_offset = p+self.file_offset
         self.pos += length
         return result
@@ -89,16 +85,16 @@ class STREAM:
     def read_byte(self):
         return self.__read('B', 1)
 
-    def read_wordbe(self):
+    def read_word_be(self):
         return self.__read('>H', 2)
 
-    def read_dwordbe(self):
+    def read_dword_be(self):
         return self.__read('>I', 4)
 
-    def read_wordle(self):
+    def read_word_le(self):
         return self.__read('<H', 2)
 
-    def read_dwordle(self):
+    def read_dword_le(self):
         return self.__read('<I', 4)
 
     def read_str(self, end=b'\0'):

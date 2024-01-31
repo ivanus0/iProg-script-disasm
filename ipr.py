@@ -11,7 +11,7 @@ class DisassemblerIPR:
     # 'o' - offset
     # 'a' - offset to array
 
-    # ???
+    # instruction argument types
     # A - Address
     # B - Byte
     # W - Word
@@ -19,6 +19,7 @@ class DisassemblerIPR:
     # T - Half byte
     # R - Register
     # N - None
+    # noinspection SpellCheckingInspection
     mnemonics = {
         0x00: ['MOV', 'RRN'],
         0x01: ['LDB', 'RBN'],
@@ -142,7 +143,7 @@ class DisassemblerIPR:
         self.presets = presets
 
     def is_host(self):
-        is_device = self.presets and self.presets.get('type') == 'device'
+        is_device = self.presets.get('type') == 'device'
         return not is_device
 
     @staticmethod
@@ -161,9 +162,9 @@ class DisassemblerIPR:
             return f'R{v}'
         elif t == 'o' or t == 'a':
             # offset
-            olabel = self.listing.get_label(v)
-            if olabel is not None:
-                return olabel
+            o_label = self.listing.get_label(v)
+            if o_label is not None:
+                return o_label
             else:
                 return f'unnamed_{v}'
         else:
@@ -195,12 +196,13 @@ class DisassemblerIPR:
         addresses = set()
         m = self.listing.mem
         m.pos = ea
-        breakdisasm = False
+        do_break = False
 
         try:
             c = m.read_byte()
             mnem = self.mnemonics.get(c)
             if mnem is not None:
+                # noinspection SpellCheckingInspection
                 if mnem[1] == 'NNN':  # NNN ?
                     pass
                 elif mnem[1] == 'RRN':
@@ -219,19 +221,19 @@ class DisassemblerIPR:
                 elif mnem[1] == 'RWN':
                     # LDW, ADDW, ANDW, SUBW, ORW, XORW, MULW, DIVW, MODW
                     t1 = m.read_byte()
-                    t2 = m.read_wordbe()
+                    t2 = m.read_word_be()
                     # t2 может быть и ссылкой и числом
                     set_command(mnem[0], [(t1, 'r'), (t2, 'd')])
 
                 elif mnem[1] == 'RDN':
                     # LDD, ADDD, ANDD, SUBD, ORD, XORD, MULD, DIVD, MODD
                     t1 = m.read_byte()
-                    t2 = m.read_dwordbe()
+                    t2 = m.read_dword_be()
                     set_command(mnem[0], [(t1, 'r'), (t2, 'd')])
 
                 elif mnem[1] == 'RAN':
                     t1 = m.read_byte()
-                    t2 = m.read_wordbe()
+                    t2 = m.read_word_be()
                     set_command(mnem[0], [(t1, 'r'), (t2, 'o')])
                     if mnem[0] in ['JZ', 'JNZ']:
                         # JZ, JNZ
@@ -245,21 +247,22 @@ class DisassemblerIPR:
                 elif mnem[1] == 'ARN':
                     # STMx
                     t1 = m.read_byte()
-                    t2 = m.read_wordbe()
+                    t2 = m.read_word_be()
                     set_command(mnem[0], [(t2, 'o'), (t1, 'r')])
                     pref = 'b_' if mnem[0][-1] == 'B' else 'w_' if mnem[0][-1] == 'W' else 'd_'
                     self.listing.set_label(t2, f'{pref}{t2:04X}', False)
 
                 elif mnem[1] == 'WNN' or mnem[1] == 'ANN':
                     # JMP, CALL
-                    t1 = m.read_wordbe()
+                    t1 = m.read_word_be()
                     set_command(mnem[0], [(t1, 'o')])
                     # если CALL, то добавить в listing 'p', но не добавляем в addresses
                     if mnem[0] == 'CALL':
                         # CALL
                         # Don't use the proc_ prefix. This conflicts with iProg compiler
                         self.listing.set_label(t1, f'prc_{t1:04X}', False)
-                        self.listing.set_type(t1, set('p'))
+                        self.listing.set_flag_proc(t1)
+
                     else:
                         # JMP
                         addresses.add(t1)
@@ -276,7 +279,7 @@ class DisassemblerIPR:
                     a = m.read_byte()
                     t1 = a & 0x0f
                     t2 = a >> 4
-                    t3 = m.read_wordbe()
+                    t3 = m.read_word_be()
                     if mnem[0] != 'LMA':
                         set_command(mnem[0], [(t1, 'r'), (t2, 'r'), (t3, 'o')])
                         self.listing.set_label(t3, f'loc_{t3:04X}', False)
@@ -311,7 +314,7 @@ class DisassemblerIPR:
                     # JBRS, JBRC, CPIJE, CPIJNE
                     t1 = m.read_byte()
                     t2 = m.read_byte()
-                    t3 = m.read_wordbe()
+                    t3 = m.read_word_be()
                     set_command(mnem[0], [(t1, 'r'), (t2, 'd'), (t3, 'o')])
                     self.listing.set_label(t3, f'loc_{t3:04X}', False)
                     addresses.add(t3)
@@ -319,7 +322,7 @@ class DisassemblerIPR:
                 elif mnem[1] == 'BAN':
                     # JNZIO, JZIO
                     t1 = m.read_byte()
-                    t2 = m.read_wordbe()
+                    t2 = m.read_word_be()
                     set_command(mnem[0], [(t1, 'd'), (t2, 'o')])
                     self.listing.set_label(t2, f'loc_{t2:04X}', False)
                     addresses.add(t2)
@@ -343,7 +346,7 @@ class DisassemblerIPR:
                 elif mnem[1] == 'RAR':
                     # AWRx, ARDx
                     a = m.read_byte()
-                    t1 = m.read_wordbe()
+                    t1 = m.read_word_be()
                     t2 = a & 0x0f
                     t3 = a >> 4
                     pref = 'b_' if mnem[0][-1] == 'B' else 'w_' if mnem[0][-1] == 'W' else 'd_'
@@ -355,34 +358,33 @@ class DisassemblerIPR:
                         set_command(mnem[0], [(t2, 'r'), (t1, 'a'), (t3, 'r')])
                     label = f'{pref}{t1:04X}'
                     self.listing.set_label(t1, label, False)
-                    self.listing.set_comment(t1, f'{label}[]')
 
                 else:
                     # invalid instruction
-                    breakdisasm = True
+                    do_break = True
 
             else:
                 print(f'invalid code {c:x} @{ea:04x}')
                 # mark bad instruction
                 set_command('<invalid>', [])
-                self.listing.set_type(ea, set('b'))
-                breakdisasm = True
+                self.listing.set_flag_invalid(ea)
+                do_break = True
 
             if c == 0x58 or c == 0x56:  # RET or JMP
-                breakdisasm = True
+                do_break = True
 
-            if not breakdisasm:
+            if not do_break:
                 addresses.add(m.pos)
 
         except MemoryNotDefined as e:
             print(hex(ea), e)
             # mark bad instruction
             set_command('<invalid>', [])
-            self.listing.set_type(ea, set('b'))
+            self.listing.set_flag_invalid(ea)
 
         return addresses
 
-    def postprocess(self):
+    def post_process(self):
         self.presets['global'] = {'emem': [], 'string': []}
         func_ea = self.listing.get_addresses(set('pc'))
         for f in func_ea:
@@ -409,19 +411,19 @@ class IPR:
         self.b_window_end = 0
         self.b_windows_listing = []
 
-        self.b_scripthost_start = 0
-        self.b_scripthost_end = 0
-        self.b_scriptdevice_ep_start = 0
-        self.b_scriptdevice_ep_end = 0
-        self.b_scriptdevice_crypt_start = 0
-        self.b_scriptdevice_crypt_end = 0
-        self.b_scriptdevice_crc_start = 0
-        self.b_scriptdevice_crc_end = 0
+        self.b_host_script_start = 0
+        self.b_host_script_end = 0
+        self.b_device_script_ep_start = 0
+        self.b_device_script_ep_end = 0
+        self.b_device_script_crypt_start = 0
+        self.b_device_script_crypt_end = 0
+        self.b_device_script_crc_start = 0
+        self.b_device_script_crc_end = 0
         self.script_listing = []
-        self.scriptdevice = None
+        self.device_script = None
 
         self.stream = STREAM()
-        self.stream.load_bin(filename)
+        self.stream.load_binary(filename)
 
     def get_lst(self):
         lst = []
@@ -433,7 +435,7 @@ class IPR:
         return lst
 
     def get_ipr(self):
-        if self.scriptdevice is None:
+        if self.device_script is None:
             return None
 
         ipr = []
@@ -441,13 +443,16 @@ class IPR:
         ipr.extend(self.stream.get_block(self.b_toolbar_start, self.b_toolbar_end))
         ipr.extend(self.stream.get_block(self.b_editor_start, self.b_editor_end))
         ipr.extend(self.stream.get_block(self.b_window_start, self.b_window_end))
-        ipr.extend(self.stream.get_block(self.b_scripthost_start, self.b_scripthost_end))
-        ipr.extend(self.stream.get_block(self.b_scriptdevice_ep_start, self.b_scriptdevice_ep_end))
+        ipr.extend(self.stream.get_block(self.b_host_script_start, self.b_host_script_end))
+        ipr.extend(self.stream.get_block(self.b_device_script_ep_start, self.b_device_script_ep_end))
 
-        # ipr.extend(self.stream.get_block(self.b_scriptdevice_crypt_start, self.b_scriptdevice_crypt_end))       # Исходные данные, могут быть кодированными
-        ipr.extend(self.scriptdevice.get_all())                                                                 # раскодированные данные
+        # Исходные данные, могут быть кодированными
+        # ipr.extend(self.stream.get_block(self.b_device_script_crypt_start, self.b_device_script_crypt_end))
 
-        ipr.extend(self.stream.get_block(self.b_scriptdevice_crc_start, self.b_scriptdevice_crc_end))
+        # раскодированные данные
+        ipr.extend(self.device_script.get_all())
+
+        ipr.extend(self.stream.get_block(self.b_device_script_crc_start, self.b_device_script_crc_end))
         return bytearray(ipr)
 
     def decompile_menu(self):
@@ -459,12 +464,12 @@ class IPR:
             while True:
                 name = self.stream.read_str(b'\r')
                 if name != '-':
-                    proc_id = self.stream.read_wordbe()
+                    proc_id = self.stream.read_word_be()
                     menu_id = self.stream.read_byte()       # byte or -1
                     hotkey = self.stream.read_str(b'\r')
                     label = f'{name.replace(" ", "_")}'
                     self.host_listing.set_label(proc_id, label)
-                    self.host_listing.set_type(proc_id, set('p'))
+                    self.host_listing.set_flag_proc(proc_id)
                     code.append(f'    {name},{label},{menu_id},{hotkey}')
                 else:
                     code.append('    -')
@@ -508,10 +513,10 @@ class IPR:
             n = int(self.stream.read_char())    # '1' или '2'
             for n in range(0, n):
                 caption = self.stream.read_str(b'\r')
-                size = self.stream.read_dwordbe()
+                size = self.stream.read_dword_be()
                 mode = self.stream.read_byte()
-                bytes = self.stream.read_byte()
-                code.append(f' (Caption="{caption}";size={size};mode={mode};bytes={bytes})')
+                b = self.stream.read_byte()
+                code.append(f'    (Caption="{caption}";size={size};mode={mode};bytes={b})')
             code.append('}')
         elif c == b'e':
             print('is no Editor')
@@ -536,9 +541,9 @@ class IPR:
             # _ = self.stream.read_char()   # must be /r
             caption = self.stream.read_str(b'\r')
 
-            width = self.stream.read_wordbe()
-            height = self.stream.read_wordbe()
-            align = self.stream.read_wordbe()
+            width = self.stream.read_word_be()
+            height = self.stream.read_word_be()
+            align = self.stream.read_word_be()
             align = 'h' if align == 0 else 'v'  # ALIGN: Horizontal==0 Vertical==1
             f = {
                 'caption': f'"{caption}"',
@@ -563,10 +568,10 @@ class IPR:
                 elif t == b'G':
                     # Group
                     caption = self.stream.read_str(b'\r')
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    height = self.stream.read_wordbe()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    height = self.stream.read_word_be()
                     f = {
                         'caption': f'"{caption}"',
                         'left': left,
@@ -581,11 +586,11 @@ class IPR:
                 elif t == b'B':
                     # Button
                     caption = self.stream.read_str(b'\r')
-                    proc = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    height = self.stream.read_wordbe()
+                    proc = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    height = self.stream.read_word_be()
                     f = {
                         'caption': f'"{caption}"',
                         'left': left,
@@ -595,8 +600,10 @@ class IPR:
                     }
                     if proc != 0xFFFF:
                         label = f'button_{proc:04X}'
-                        self.host_listing.set_label(proc, label)
-                        self.host_listing.set_type(proc, set('p'))
+                        # The procname may already be declared in the menu
+                        self.host_listing.set_label(proc, label, False)
+                        label = self.host_listing.get_label(proc)
+                        self.host_listing.set_flag_proc(proc)
                         f['proc'] = label
                     code.append(f'{" "*pad}Button({join_fields(f)})')
 
@@ -605,12 +612,12 @@ class IPR:
                     caption = self.stream.read_str(b'\r')
                     # Попадались несколько "Kangoo*.ipr" у которых 4 word. Сломанные или старые?
                     # Должно быть 5 word
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    height = self.stream.read_wordbe()
-                    # unknown = self.stream.read_wordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    height = self.stream.read_word_be()
+                    # unknown = self.stream.read_word_be()
                     # width = 0
                     # height = 0
                     name = f'picture_{name_id:04X}'
@@ -627,11 +634,11 @@ class IPR:
                 elif t == b'H':
                     # Checkbox
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    proc = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    value = self.stream.read_wordbe()
+                    name_id = self.stream.read_word_be()
+                    proc = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    value = self.stream.read_word_be()
                     name = f'checkbox_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -643,7 +650,7 @@ class IPR:
                     if proc != 0xFFFF:
                         label = f'checkbox_{proc:04X}'
                         self.host_listing.set_label(proc, label)
-                        self.host_listing.set_type(proc, set('p'))
+                        self.host_listing.set_flag_proc(proc)
                         f['proc'] = label
                     code.append(f'{" "*pad}Checkbox({join_fields(f)})')
                     self.host_listing.set_label(name_id, name)
@@ -651,12 +658,12 @@ class IPR:
                 elif t == b'I':
                     # List
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    proc = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    value = self.stream.read_wordbe()
+                    name_id = self.stream.read_word_be()
+                    proc = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    value = self.stream.read_word_be()
                     items = []
                     while True:
                         c = self.stream.peek_char()
@@ -678,7 +685,7 @@ class IPR:
                     if proc != 0xFFFF:
                         label = f'list_{proc:04X}'
                         self.host_listing.set_label(proc, label)
-                        self.host_listing.set_type(proc, set('p'))
+                        self.host_listing.set_flag_proc(proc)
                         f['proc'] = label
                     self.host_listing.set_label(name_id, name)
                     code.append(f'{" "*pad}List({join_fields(f)})')
@@ -686,11 +693,11 @@ class IPR:
                 elif t == b'L':
                     # Label
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    value = self.stream.read_wordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    value = self.stream.read_word_be()
                     name = f'label_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -705,11 +712,11 @@ class IPR:
                 elif t == b'D':
                     # Digit
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    value = self.stream.read_dwordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    value = self.stream.read_dword_be()
                     name = f'digit_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -725,11 +732,11 @@ class IPR:
                 elif t == b'h':
                     # Hexedit
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    value = self.stream.read_dwordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    value = self.stream.read_dword_be()
                     name = f'hexedit_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -745,11 +752,11 @@ class IPR:
                 elif t == b'b':
                     # Hexbytes
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    value = self.stream.read_dwordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    value = self.stream.read_dword_be()
                     items = ' '.join([f'{self.stream.read_byte():02X}' for _ in range(value)])
                     name = f'hexbytes_{name_id:04X}'
                     f = {
@@ -769,10 +776,10 @@ class IPR:
                 elif t == b'Y':
                     # Text
                     caption = self.stream.read_str(b'\r')
-                    name_id = self.stream.read_wordbe()
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
+                    name_id = self.stream.read_word_be()
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
                     items = self.stream.read_str(b'\r')
                     name = f'text_{name_id:04X}'
                     f = {
@@ -787,11 +794,11 @@ class IPR:
 
                 elif t == b'P':
                     # Pages
-                    # name_id = self.stream.read_wordbe()      ## ? unsused
-                    left = self.stream.read_wordbe()
-                    top = self.stream.read_wordbe()
-                    width = self.stream.read_wordbe()
-                    height = self.stream.read_wordbe()
+                    # name_id = self.stream.read_word_be()      ## ? unsused
+                    left = self.stream.read_word_be()
+                    top = self.stream.read_word_be()
+                    width = self.stream.read_word_be()
+                    height = self.stream.read_word_be()
                     # name = f'pages_{name_id:04X}'
                     f = {
                         # 'name': name,
@@ -841,35 +848,35 @@ class IPR:
     def decompile_script(self):
         start = self.stream.pos
         code = []
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'Tab_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'Buf1Size_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'Buf2Size_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'Flags_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'SelBegin_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
-        self.host_listing.set_label(lbl, f'SelEnd_{lbl:04X}')
-        lbl = self.stream.read_wordbe()
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'Tab')
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'Buf1Size')
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'Buf2Size')
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'Flags')
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'SelBegin')
+        lbl = self.stream.read_word_be()
+        self.host_listing.set_label(lbl, f'SelEnd')
+        lbl = self.stream.read_word_be()
         if lbl != 0xFFFF:
             lbl &= 0x7FFF
             self.host_listing.set_label(lbl, f'OnCreate_{lbl:04X}')
-            self.host_listing.set_type(lbl, set('p'))
+            self.host_listing.set_flag_proc(lbl)
 
-        lbl = self.stream.read_wordbe()
+        lbl = self.stream.read_word_be()
         if lbl != 0xFFFF:
             lbl &= 0x7FFF
             self.host_listing.set_label(lbl, f'Res2_{lbl:04X}')
 
-        nextblock_offset = self.stream.read_wordbe()
+        nextblock_offset = self.stream.read_word_be()
         host_bytescode_offset = self.stream.pos
         host_bytecode = self.stream.read_stream(nextblock_offset - host_bytescode_offset)
         host_bytecode.mem_offset = 0
-        self.b_scripthost_start = start
-        self.b_scripthost_end = self.stream.pos
+        self.b_host_script_start = start
+        self.b_host_script_end = self.stream.pos
         self.host_listing.set_mem(host_bytecode)
         code.append('')
         code.append('$HOST')
@@ -882,26 +889,26 @@ class IPR:
         # Entry points...
         start = self.stream.pos
         for i in range(32):
-            p = self.stream.read_wordle()
+            p = self.stream.read_word_le()
             if p != 0xFFFF:
                 label = f'prc_id{i}' if i != 31 else 'Idle'
                 self.device_listing.set_label(p, label)
-                self.device_listing.set_type(p, set('p'))
-        self.b_scriptdevice_ep_start = start
-        self.b_scriptdevice_ep_end = self.stream.pos
+                self.device_listing.set_flag_proc(p)
+        self.b_device_script_ep_start = start
+        self.b_device_script_ep_end = self.stream.pos
 
         # bytecode, может быть шифрованный
         start = self.stream.pos
         # От текущей позиции до конца - 2 байта. CRC должно быть выровнено на границу 64bytes
         device_bytecode = self.stream.read_stream(self.stream.len - self.stream.pos - 2)
         device_bytecode.mem_offset = 0
-        self.b_scriptdevice_crypt_start = start
-        self.b_scriptdevice_crypt_end = self.stream.pos
+        self.b_device_script_crypt_start = start
+        self.b_device_script_crypt_end = self.stream.pos
 
         start = self.stream.pos
-        crc = self.stream.read_wordbe()
-        self.b_scriptdevice_crc_start = start
-        self.b_scriptdevice_crc_end = self.stream.pos
+        crc = self.stream.read_word_be()
+        self.b_device_script_crc_start = start
+        self.b_device_script_crc_end = self.stream.pos
 
         code.append('')
         code.append('$DEVICE')
@@ -909,11 +916,12 @@ class IPR:
         decrypted_bin = decode_devicebytecode(device_bytecode.bin, crc)
         if decrypted_bin is not None:
             device_bytecode.bin = decrypted_bin
-            self.scriptdevice = device_bytecode
+            self.device_script = device_bytecode
             self.device_listing.set_mem(device_bytecode)
             code.extend(self.device_listing.disassemble(DisassemblerIPR, {
                 'type': 'device',
-                'labels': self.host_listing.dis.presets['device_labels']
+                'labels': self.host_listing.dis.presets['device_labels'],
+                'procs': []   # todo: add from command line
             }))
         else:
             code.append('// invalid crc bytecode')

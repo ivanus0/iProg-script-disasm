@@ -6,7 +6,11 @@ class Line:
         self.listing = listing
         self.ea = ea
         self.len = 1
-        self.type = set('u')    # 'p' - proc, 'c' - code or u - undef
+        # 'p' - proc, 'P' - last command of proc
+        # 'c' - code
+        # 'd' - data (не используется)
+        # 'u' - undef, '?' - invalid, '#' - unused
+        self.flags = set('u')
         self.instruction = None
         self.args = None        # see disassembler class
         self.name = None
@@ -18,33 +22,33 @@ class Line:
         else:
             label = ''
 
-        t = self.type.copy()
+        f = self.flags.copy()
         mark = []
-        mark.append('p') if 'p' in t else mark.append(' ')
-        t.discard('p')
-        mark.append('c') if 'c' in t else mark.append(' ')
-        t.discard('c')
-        mark.append('u') if 'u' in t else mark.append(' ')
-        t.discard('u')
-        t.discard('P')  # Конец ф-ии
+        mark.append('p') if 'p' in f else mark.append(' ')
+        f.discard('p')
+        mark.append('c') if 'c' in f else mark.append(' ')
+        f.discard('c')
+        mark.append('u') if 'u' in f else mark.append(' ')
+        f.discard('u')
+        f.discard('P')  # Конец ф-ии
         mark = ''.join(mark)
-        mark += str(list(t))
+        mark += str(list(f))
 
         address = f'{self.ea:06X}'
         if self.listing.mem is not None:
             address += f' [{self.ea - self.listing.mem.mem_offset + self.listing.mem.file_offset:04X}]'
 
         if self.listing.mem and self.listing.mem.is_defined(self.ea, self.len):
-            bytes = self.listing.mem.get_block(self.ea, self.ea + self.len)
-            bytes = ''.join((f'{b:02X}' for b in bytes))
-            if len(bytes) > 12:
-                bytes = f'{bytes[0:12]}...'
+            dump = self.listing.mem.get_block(self.ea, self.ea + self.len)
+            hex_dump = ''.join((f'{b:02X}' for b in dump))
+            if len(hex_dump) > 12:
+                hex_dump = f'{hex_dump[0:12]}...'
         else:
-            bytes = '??'
+            hex_dump = '??'
 
         command = self.listing.dis.instruction_str(self.instruction, self.args)
 
-        line = f'{mark:<8}{address} {bytes:<16}{command}'
+        line = f'{mark:<8}{address} {hex_dump:<16}{command}'
 
         if self.comment is not None:
             # comment = self.comment.replace('\n', '\n'+' '*64+' // ')
@@ -86,8 +90,8 @@ class Listing:
     def __str__(self):
         return '\n'.join(self.generate())
 
-    def set_mem(self, bytes: STREAM):
-        self.mem = bytes
+    def set_mem(self, stream: STREAM):
+        self.mem = stream
 
     def line(self, ea, add=False) -> Line:
         if ea in self.lines:
@@ -98,55 +102,62 @@ class Listing:
                 self.lines[ea] = line
             return line
 
-    def type(self, address):
-        if address in self.lines:
-            return self.lines[address].type
+    def flags(self, ea):
+        if ea in self.lines:
+            return self.lines[ea].flags
         else:
             return set()
 
-    def get_label(self, address):
-        if address in self.lines:
-            return self.lines[address].name
+    def get_label(self, ea):
+        if ea in self.lines:
+            return self.lines[ea].name
         else:
             return None
 
-    def set_type(self, ea, type: set):
-        t = self.line(ea, True).type
-        if 'l' in type:
-            type.discard('l')
-        if 'd' in type:
-            t.discard('c')
-            t.discard('u')
-        if 'c' in type:
-            t.discard('d')
-            t.discard('u')
-        if '?' in type:
-            t.discard('u')
-        t.update(type)
+    def set_flags(self, ea, flags: set):
+        f = self.line(ea, True).flags
+        if 'd' in flags:
+            f.discard('c')
+            f.discard('u')
+        if 'c' in flags:
+            f.discard('d')
+            f.discard('u')
+        if '?' in flags:
+            f.discard('u')
+        f.update(flags)
+
+    def set_flag_proc(self, ea):
+        self.set_flags(ea, set('p'))
+
+    def set_flag_invalid(self, ea):
+        self.set_flags(ea, set('?'))
+
+    def set_flag_unused(self, ea):
+        self.set_flags(ea, set('#'))
 
     def set_label(self, ea, name, force=True):
         line = self.line(ea, True)
         if line.name is None or force:
             line.name = name
 
-    def set_command(self, ea, len, instruction, args: list):
+    def set_command(self, ea, length, instruction, args: list):
         line = self.line(ea, True)
         line.ea = ea
-        line.len = len
+        line.len = length
         line.instruction = instruction
         line.args = args
-        self.set_type(ea, set('c'))
+        self.set_flags(ea, set('c'))
 
     def set_comment(self, ea, comment):
         self.line(ea, True).comment = comment
 
-    def setCString(self, address):
+    def set_string0(self, ea):
         p = self.mem.pos
-        self.mem.pos = address
+        self.mem.pos = ea
         string = self.mem.read_str()
-        length = self.mem.pos-address
-        self.set_command(address, length,  '.DB', [(self.esc_string(string), 's')])
-        self.set_label(address, self.lbl_string(string, address))
+        length = self.mem.pos-ea
+        self.set_command(ea, length,  '.DB', [(self.esc_string(string), 's')])
+        self.set_label(ea, self.lbl_string(string, ea))
         self.mem.pos = p
 
     @staticmethod
@@ -154,7 +165,7 @@ class Listing:
         return f'"{repr(string)[1:-1]}"'
 
     @staticmethod
-    def lbl_string(string, address=None):
+    def lbl_string(string, ea=None):
         lbl = ''
         for c in string:
             if c == '\n' or c == '\r':
@@ -173,13 +184,13 @@ class Listing:
             lbl = '_' + lbl
         # no more than 8 chars
         lbl = lbl[:8]
-        if address is not None:
-            lbl += f'_{address:04X}'
+        if ea is not None:
+            lbl += f'_{ea:04X}'
 
         return lbl
 
-    def get_addresses(self, type):
-        return [a for a in self.lines if self.mem.is_defined(a, 1) and type <= self.lines[a].type]
+    def get_addresses(self, flags):
+        return [a for a in self.lines if self.mem.is_defined(a, 1) and flags <= self.lines[a].flags]
 
     def disasm_proc(self, ea):
         # disasm proc
@@ -193,22 +204,22 @@ class Listing:
                 print('code before start function!')
             if a > ea_last:
                 ea_last = a
-            if 'c' not in self.type(a):
+            if 'c' not in self.flags(a):
                 branch.update(self.dis.disasm_command(a))
         # next command - end of function
-        if 'b' not in self.line(ea_last).type:
-            self.set_type(self.line(ea_last).next().ea, set('P'))
+        if '?' not in self.line(ea_last).flags:
+            self.set_flags(self.line(ea_last).next().ea, set('P'))
         else:
             # mark bad function
-            self.set_type(ea, set('b'))
+            self.set_flag_invalid(ea)
 
         # дизассемблировать неиспользуемый код...
         line = self.line(ea_first)
         while line.ea <= ea_last:
-            if 'u' in line.type:
+            if 'u' in line.flags:
                 self.dis.disasm_command(line.ea)
                 line = self.line(line.ea)
-                self.set_type(line.ea, set('#'))
+                self.set_flag_unused(line.ea)
             line = line.next()
 
         if self.code_start is None or ea_first < self.code_start:
@@ -218,14 +229,20 @@ class Listing:
 
     def disassemble(self, disassembler_class, presets=None):
         lst = []
+        if presets is None:
+            presets = {}
+
         self.dis = disassembler_class(self, presets)
 
         # Mark known labels
-        if presets:
-            for ea, name, comment in presets.get('labels', []):
-                self.set_label(ea, name)
-                if comment:
-                    self.set_comment(ea, comment)
+        for ea, name, comment in presets.get('labels', []):
+            self.set_label(ea, name)
+            if comment:
+                self.set_comment(ea, comment)
+
+        # Mark known procs
+        for ea in presets.get('procs', []):
+            self.set_flag_proc(ea)
 
         # дизассемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
         # тут в listing точки входа в процедуры и ссылки на глобальные переменные
@@ -240,8 +257,8 @@ class Listing:
         # Если первая ф-ия начинается не с начала, то в начале - точно ф-ия
         ea = self.mem.mem_offset
         if self.code_start is not None and ea < self.code_start:
-            self.set_type(ea, set('p'))
-            self.set_label(ea, f'unused_{ea:04x}')
+            self.set_label(ea, f'unused_{ea:04X}')
+            self.set_flag_proc(ea)
             self.disasm_proc(ea)
         # Всё что между ф-иями - тоже ф-ии
         while True:
@@ -249,12 +266,12 @@ class Listing:
             if len(func_ea) == 0:
                 break
             for ea in func_ea:
-                self.set_type(ea, set('p'))
-                self.set_label(ea, f'unused_{ea:04x}')
+                self.set_label(ea, f'unused_{ea:04X}')
+                self.set_flag_proc(ea)
                 self.disasm_proc(ea)
 
         # "декомпиляция"
-        self.dis.postprocess()
+        self.dis.post_process()
 
         # генерим листинг
         lst.extend(self.generate())
@@ -272,14 +289,7 @@ class Listing:
                     lst.append(str(a_next))
                     a_next = a_next.next()
 
-            # for au in range(a_next, a):
-                #     if self.mem.is_defined(au, 1):
-                #         l = self.line(au)
-                #         l.len = 1
-                #         lst.append(str(l))
-            # если у lines только метка (len==0), то будет дублироваться адрес
-
-            if 'P' in line.type:
+            if 'P' in line.flags:
                 lst.append('')  # end of function - add space
                 lst.append('')
 
@@ -293,10 +303,4 @@ class Listing:
                 lst.append(str(a_next))
                 a_next = a_next.next()
 
-            # for a in range(a_next.ea, self.mem.mem_offset+self.mem.len):
-            #     if self.mem.is_defined(a, 1):
-            #         l = self.line(a)
-            #         l.len = 1
-            #         lst.append(str(l))
         return lst
-        # return [str(self.lines[k]) for k in sorted(self.lines)]

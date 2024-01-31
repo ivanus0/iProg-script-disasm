@@ -19,11 +19,15 @@ def decompile_ipr(ipr_filename):
 def decompile_cal(cal_filename):
     cal = CAL(cal_filename)
     cal.decompile()
-    with open(os.path.splitext(cal_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
-        f.write('\n'.join(cal.get_lst()))
+    cal_lst = cal.get_lst()
+    if cal_lst:
+        with open(os.path.splitext(cal_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
+            f.write('\n'.join(cal_lst))
 
-    with open(os.path.splitext(cal_filename)[0] + '_decrypted.cal', 'wb') as f:
-        f.write(cal.get_data())
+    decrypted_cal = cal.get_data()
+    if decrypted_cal:
+        with open(os.path.splitext(cal_filename)[0] + '_decrypted.bin', 'wb') as f:
+            f.write(decrypted_cal)
 
 
 def decompile(source_filename):

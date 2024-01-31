@@ -129,9 +129,9 @@ class DisassemblerCAL:
             # dword
             return f'0x{v:08x}'
         elif t == 'o':
-            olabel = self.listing.get_label(v)
-            if olabel is not None:
-                return olabel
+            o_label = self.listing.get_label(v)
+            if o_label is not None:
+                return o_label
             else:
                 return f'unnamed_{v}'
         else:
@@ -171,7 +171,7 @@ class DisassemblerCAL:
 
         m = self.listing.mem
         m.pos = ea
-        breakdisasm = False
+        do_break = False
 
         try:
             c = m.read_byte()
@@ -182,7 +182,7 @@ class DisassemblerCAL:
 
             elif c == 0x01:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x02:
@@ -202,7 +202,7 @@ class DisassemblerCAL:
 
             elif c == 0x05:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} + {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x06:
@@ -212,7 +212,7 @@ class DisassemblerCAL:
 
             elif c == 0x07:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} - {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x08:
@@ -222,7 +222,7 @@ class DisassemblerCAL:
 
             elif c == 0x09:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} / {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x0A:
@@ -232,7 +232,7 @@ class DisassemblerCAL:
 
             elif c == 0x0B:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} % {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x0C:
@@ -242,7 +242,7 @@ class DisassemblerCAL:
 
             elif c == 0x0D:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} * {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x0E:
@@ -252,7 +252,7 @@ class DisassemblerCAL:
 
             elif c == 0x0F:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} & {1}', [(t0, 'r'), (t1, 'D')])
 
             elif c == 0x10:
@@ -262,7 +262,7 @@ class DisassemblerCAL:
 
             elif c == 0x11:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} | {1}', [(t0, 'r'), (t1, 'D')])
 
             elif c == 0x12:
@@ -272,7 +272,7 @@ class DisassemblerCAL:
 
             elif c == 0x13:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} ^ {1}', [(t0, 'r'), (t1, 'D')])
 
             elif c == 0x14:
@@ -298,7 +298,7 @@ class DisassemblerCAL:
             elif c == 0x18:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} == {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
@@ -307,7 +307,7 @@ class DisassemblerCAL:
             elif c == 0x19:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} != {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
@@ -316,7 +316,7 @@ class DisassemblerCAL:
             elif c == 0x1A:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} > {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
@@ -325,7 +325,7 @@ class DisassemblerCAL:
             elif c == 0x1B:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} < {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
@@ -334,7 +334,7 @@ class DisassemblerCAL:
             elif c == 0x1C:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} >= {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
@@ -343,22 +343,22 @@ class DisassemblerCAL:
             elif c == 0x1D:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
-                t2 = m.read_wordle()
+                t2 = m.read_word_le()
                 label = f'label_{t2:06x}'
                 self.listing.set_label(t2, label)
                 set_command('if {0} <= {1} goto {2}', [(t0, 'r'), (t1, 'r'), (t2, 'o')])
                 addresses.add(t2)
 
             elif c == 0x1E:
-                t0 = m.read_wordle()
+                t0 = m.read_word_le()
                 label = f'label_{t0:06x}'
                 self.listing.set_label(t0, label)
                 set_command('jmp {0}', [(t0, 'o')])
-                breakdisasm = True
+                do_break = True
 
             elif c == 0x1F:
                 set_command('return', [])
-                breakdisasm = True
+                do_break = True
 
             elif c == 0x20:
                 t0 = m.read_byte()
@@ -377,19 +377,19 @@ class DisassemblerCAL:
 
             elif c == 0x23:
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = @{1}', [(t0, 'r'), (t1, 'W')])
 
             elif c == 0x24:
                 # 'C=D     ',    24h,    'b',    'd'
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {1}', [(t0, 'c'), (t1, 'd')])
 
             elif c == 0x25:
                 # 'CP=D    ',    25h,    'b',    'd'
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 t = t1 >> 24
                 v = t1 & 0xFFFFFF
                 if t == 1:
@@ -410,13 +410,13 @@ class DisassemblerCAL:
 
             elif c == 0x27:
                 # '@D=R    ',    27h,    'd',    'b'
-                t0 = m.read_dwordle()
+                t0 = m.read_dword_le()
                 t1 = m.read_byte()
                 set_command('@{0} = {1}', [(t0, 'W'), (t1, 'r')])
 
             elif c == 0x28:
                 # '@D=D    ',    28h,    'd',    'b'
-                t0 = m.read_dwordle()
+                t0 = m.read_dword_le()
                 t1 = m.read_byte()
                 set_command('@{0} = {1}', [(t0, 'W'), (t1, 'B')])
 
@@ -427,7 +427,7 @@ class DisassemblerCAL:
 
             elif c == 0x2A:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x2B:
@@ -437,7 +437,7 @@ class DisassemblerCAL:
 
             elif c == 0x2C:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} + {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x2D:
@@ -447,7 +447,7 @@ class DisassemblerCAL:
 
             elif c == 0x2E:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} - {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x2F:
@@ -457,7 +457,7 @@ class DisassemblerCAL:
 
             elif c == 0x30:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} / {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x31:
@@ -467,7 +467,7 @@ class DisassemblerCAL:
 
             elif c == 0x32:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} * {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x33:
@@ -477,7 +477,7 @@ class DisassemblerCAL:
 
             elif c == 0x34:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} % {1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x35:
@@ -486,7 +486,7 @@ class DisassemblerCAL:
 
             elif c == 0x36:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 s = self.decode_string(t1)
                 set_command('{0} = {0} + "{1}"', [(t0, 's'), (s, 'd')])
 
@@ -499,13 +499,13 @@ class DisassemblerCAL:
             elif c == 0x38:
                 # 'S+W     ',    38h,    'b',    'i'
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} + #w.{1}', [(t0, 's'), (t1, 'W')])
 
             elif c == 0x39:
                 # 'S+D     ',    39h,    'b',    'd'
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = {0} + #d.{1}', [(t0, 's'), (t1, 'D')])
 
             elif c == 0x3A:
@@ -565,13 +565,13 @@ class DisassemblerCAL:
             elif c == 0x43:
                 # 'S+WI    ',    43h,    'b',    'w'
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('??{0} = {0} + {1}', [(t0, 's'), (t1, 'D')])
 
             elif c == 0x44:
                 # 'S+DI    ',    44h,    'b',    'd'
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('??{0} = {0} + {1}', [(t0, 's'), (t1, 'D')])
 
             elif c == 0x45:
@@ -581,7 +581,7 @@ class DisassemblerCAL:
 
             elif c == 0x46:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} & {1}', [(t0, 'r'), (t1, 'W')])
 
             elif c == 0x47:
@@ -591,7 +591,7 @@ class DisassemblerCAL:
 
             elif c == 0x48:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} | {1}', [(t0, 'r'), (t1, 'W')])
 
             elif c == 0x49:
@@ -601,15 +601,15 @@ class DisassemblerCAL:
 
             elif c == 0x4a:
                 t0 = m.read_byte()
-                t1 = m.read_wordle()
+                t1 = m.read_word_le()
                 set_command('{0} = {0} ^ {1}', [(t0, 'r'), (t1, 'W')])
 
             elif c == 0x4b:
                 # 'CALL    ',    4Bh,    'l'
-                t0 = m.read_wordle()
+                t0 = m.read_word_le()
                 label = f'proc_{t0:06x}'
                 self.listing.set_label(t0, label)
-                self.listing.set_type(t0, set('p'))
+                self.listing.set_flag_proc(t0)
                 set_command('call {0}', [(t0, 'o')])
 
             elif c == 0x4c:
@@ -621,7 +621,7 @@ class DisassemblerCAL:
             elif c == 0x4d:
                 # 'R=?D    ',    4Dh,    'b',    'd'
                 t0 = m.read_byte()
-                t1 = m.read_dwordle()
+                t1 = m.read_dword_le()
                 set_command('{0} = ?{1}', [(t0, 'r'), (t1, 'd')])
 
             elif c == 0x4e:
@@ -637,10 +637,10 @@ class DisassemblerCAL:
 
             else:
                 # invalid instruction
-                self.listing.set_type(ea, set('?'))
-                breakdisasm = True
+                self.listing.set_flag_invalid(ea)
+                do_break = True
 
-            if not breakdisasm:
+            if not do_break:
                 addresses.add(m.pos)
 
         except MemoryNotDefined as e:
@@ -648,7 +648,7 @@ class DisassemblerCAL:
 
         return addresses
 
-    def postprocess(self):
+    def post_process(self):
         pass
 
 
@@ -660,7 +660,10 @@ class CAL:
         self.script_listing = []
         self.stream = STREAM()
         self.data = STREAM()
-        self.stream.load_hex(filename)
+        try:
+            self.stream.load_hex(filename)
+        except ValueError:
+            print('Probably file as source code')
 
     def get_lst(self):
         lst = []
@@ -683,8 +686,8 @@ class CAL:
 
     def decompile_window(self):
         code = []
-        width = self.data.read_wordle()
-        height = self.data.read_wordle()
+        width = self.data.read_word_le()
+        height = self.data.read_word_le()
         code.append(f'Size({width}, {height});')
         code.append('Form')
         code.append('{')
@@ -696,10 +699,10 @@ class CAL:
             if chr(c) == 'G':
                 # Group
                 text = self.read_str(c)
-                left = self.data.read_wordle()
-                top = self.data.read_wordle()
-                width = self.data.read_wordle()
-                height = self.data.read_wordle()
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                width = self.data.read_word_le()
+                height = self.data.read_word_le()
                 code.append(f'{" " * pad}Group("{text}", {left}, {top}, {width}, {height})')
                 code.append(f'{" " * pad}{{')
                 pad += tabwidth
@@ -707,8 +710,8 @@ class CAL:
             elif chr(c) == 'L':
                 # Label
                 text = self.read_str(c)
-                left = self.data.read_wordle()
-                top = self.data.read_wordle()
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
                 name = f'label_{ctrl_id}'
                 self.ui[ctrl_id] = name
                 ctrl_id += 1
@@ -716,10 +719,10 @@ class CAL:
             elif chr(c) == 'P':
                 # Picture
                 text = self.read_str(c)
-                left = self.data.read_wordle()
-                top = self.data.read_wordle()
-                width = self.data.read_wordle()
-                height = self.data.read_wordle()
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                width = self.data.read_word_le()
+                height = self.data.read_word_le()
                 name = f'pict_{ctrl_id}'
                 self.ui[ctrl_id] = name
                 ctrl_id += 1
@@ -727,10 +730,10 @@ class CAL:
             elif chr(c) == 'H':
                 # Hexdigit
                 text = self.read_str(c)
-                left = self.data.read_wordle()
-                top = self.data.read_wordle()
-                width = self.data.read_wordle()
-                s = self.data.read_wordle()
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                width = self.data.read_word_le()
+                s = self.data.read_word_le()
                 name = f'hex_{ctrl_id}'
                 self.ui[ctrl_id] = name
                 ctrl_id += 1
@@ -747,9 +750,9 @@ class CAL:
             elif chr(c) == 'D':
                 # Digit
                 text = self.read_str(c)
-                left = self.data.read_wordle()
-                top = self.data.read_wordle()
-                width = self.data.read_wordle()
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                width = self.data.read_word_le()
                 name = f'digit_{ctrl_id}'
                 self.ui[ctrl_id] = name
                 ctrl_id += 1
@@ -768,29 +771,31 @@ class CAL:
         self.window_listing = code
 
     def decompile(self):
+        if self.stream.len == 0:
+            return
         code = []
 
-        self.data.set_bin(decode_cal(self.stream.bin))
+        self.data.set_binary(decode_cal(self.stream.bin))
         self.listing = Listing()
         self.listing.ui = self.ui
 
-        on_show = self.data.read_wordle()    # 0 After load
-        on_apply = self.data.read_wordle()   # 1 Button Click
-        on_select = self.data.read_wordle()  # 2 Select hexdump range
-        unused = self.data.read_wordle()
+        on_show = self.data.read_word_le()    # 0 After load
+        on_apply = self.data.read_word_le()   # 1 Button Click
+        on_select = self.data.read_word_le()  # 2 Select hexdump range
+        unused = self.data.read_word_le()
         if on_show != 0xFFFF:
             self.listing.set_label(on_show, 'OnShow')
-            self.listing.set_type(on_show, set('p'))
+            self.listing.set_flag_proc(on_show)
         else:
             code.append('// OnShow don\'t used')
         if on_apply != 0xFFFF:
             self.listing.set_label(on_apply, 'OnApply')
-            self.listing.set_type(on_apply, set('p'))
+            self.listing.set_flag_proc(on_apply)
         else:
             code.append('// OnApply don\'t used')
         if on_select != 0xFFFF:
             self.listing.set_label(on_select, 'OnChange')
-            self.listing.set_type(on_select, set('p'))
+            self.listing.set_flag_proc(on_select)
         else:
             code.append('// OnSelect don\'t used')
         code.append(f'// unused field = {unused}')
