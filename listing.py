@@ -2,7 +2,7 @@ from stream import STREAM
 
 
 class Line:
-    def __init__(self, listing, ea):
+    def __init__(self, listing: "Listing", ea: int):
         self.listing = listing
         self.ea = ea
         self.len = 1
@@ -51,9 +51,9 @@ class Line:
         line = f'{mark:<8}{address} {hex_dump:<16}{command}'
 
         if self.comment is not None:
-            # comment = self.comment.replace('\n', '\n'+' '*64+' // ')
+            # comment = self.comment.replace('\n', '\n'+' '*64+' ; ')
             comment = self.comment
-            line = f'{line:<64} // {comment}'
+            line = f'{line:<64} ; {comment}'
 
         line = label + line
 
@@ -74,7 +74,7 @@ class Line:
     def set_arg_type(self, n, new_type):
         self.args[n] = (self.arg(n), new_type)
 
-    def next(self):
+    def next(self) -> "Line":
         return self.listing.line(self.ea + self.len)
 
 
@@ -93,7 +93,7 @@ class Listing:
     def set_mem(self, stream: STREAM):
         self.mem = stream
 
-    def line(self, ea, add=False) -> Line:
+    def line(self, ea: int, add=False) -> Line:
         if ea in self.lines:
             return self.lines[ea]
         else:
@@ -102,19 +102,19 @@ class Listing:
                 self.lines[ea] = line
             return line
 
-    def flags(self, ea):
+    def flags(self, ea: int):
         if ea in self.lines:
             return self.lines[ea].flags
         else:
             return set()
 
-    def get_label(self, ea):
+    def get_label(self, ea: int):
         if ea in self.lines:
             return self.lines[ea].name
         else:
             return None
 
-    def set_flags(self, ea, flags: set):
+    def set_flags(self, ea: int, flags: set):
         f = self.line(ea, True).flags
         if 'd' in flags:
             f.discard('c')
@@ -126,21 +126,21 @@ class Listing:
             f.discard('u')
         f.update(flags)
 
-    def set_flag_proc(self, ea):
+    def set_flag_proc(self, ea: int):
         self.set_flags(ea, set('p'))
 
-    def set_flag_invalid(self, ea):
+    def set_flag_invalid(self, ea: int):
         self.set_flags(ea, set('?'))
 
-    def set_flag_unused(self, ea):
+    def set_flag_unused(self, ea: int):
         self.set_flags(ea, set('#'))
 
-    def set_label(self, ea, name, force=True):
+    def set_label(self, ea: int, name, force=True):
         line = self.line(ea, True)
         if line.name is None or force:
             line.name = name
 
-    def set_command(self, ea, length, instruction, args: list):
+    def set_command(self, ea: int, length: int, instruction, args: list):
         line = self.line(ea, True)
         line.ea = ea
         line.len = length
@@ -148,10 +148,10 @@ class Listing:
         line.args = args
         self.set_flags(ea, set('c'))
 
-    def set_comment(self, ea, comment):
+    def set_comment(self, ea: int, comment):
         self.line(ea, True).comment = comment
 
-    def set_string0(self, ea):
+    def set_string0(self, ea: int):
         p = self.mem.pos
         self.mem.pos = ea
         string = self.mem.read_str()
@@ -161,11 +161,11 @@ class Listing:
         self.mem.pos = p
 
     @staticmethod
-    def esc_string(string):
+    def esc_string(string: str):
         return f'"{repr(string)[1:-1]}"'
 
     @staticmethod
-    def lbl_string(string, ea=None):
+    def lbl_string(string: str, ea=None):
         lbl = ''
         for c in string:
             if c == '\n' or c == '\r':
@@ -269,6 +269,8 @@ class Listing:
                 self.set_label(ea, f'unused_{ea:04X}')
                 self.set_flag_proc(ea)
                 self.disasm_proc(ea)
+
+        # После последней ф-ии и до метки Tab могут быть неиспользуемые функции
 
         # "декомпиляция"
         self.dis.post_process()

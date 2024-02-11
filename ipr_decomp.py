@@ -129,10 +129,12 @@ def set_device_label(listing, ea, name, comment=None):
         listing.dis.presets['device_labels'].append((ea, name, comment))
 
 
-def add_global_emem_var(listing, emem_var, emem_idx):
-    emem = (emem_var, emem_idx)
+def get_emem_label(listing, emem_id):
+    emem_var = {0: 'buf0', 1: 'buf1', 2: 'sel0', 3: 'sel1', 4: 'data'}.get(emem_id, f'emem{emem_id}')
+    emem = (emem_var, emem_id)
     if emem not in listing.dis.presets['global']['emem']:
         listing.dis.presets['global']['emem'].append(emem)
+    return emem_var
 
 
 def add_global_str_idx(listing, str_idx):
@@ -140,12 +142,33 @@ def add_global_str_idx(listing, str_idx):
         listing.dis.presets['global']['string'].append(str_idx)
 
 
-def decompile(listing: Listing, ea):
+def is_reg_preserved(lines, reg, before_line):
+    check_list = []
+    if lines and before_line:
+        line = lines[-1].next()
+        while line.ea < before_line.ea:
+            check_list.append(line)
+            line = line.next()
+
+        for line in check_list:
+            if line.instruction in ['JMP', 'CALL', 'RET', 'SYS', 'DCALL'] or \
+               line.instruction[:3] == "CMP" or \
+               line.instruction[:1] == "J" or \
+               line.instruction[:3] == "CPI" or \
+               (len(line.args) > 1 and line.arg_str(0) == reg):
+                return False
+
+    return True
+
+
+def decompile(listing: Listing, ea: int):
 
     if '?' in listing.flags(ea):
         # skip bad functions
         return
 
+    last_r15 = []
+    tmp_str = None
     line = listing.line(ea)
     while True:
 
@@ -161,7 +184,9 @@ def decompile(listing: Listing, ea):
                 # Typically the last one register is used as an unnamed variable.
                 v = ', '.join([f'R{a + line2.arg(0)}' for a in range(line2.arg(1) - line2.arg(0) - 1)])
                 if v:
-                    line2.set_comment(f'var {v};')
+                    line2.set_comment(f'var {v};\n')
+                else:
+                    line2.set_comment(f'\n')
                 line = line2.next()
                 continue
 
@@ -331,7 +356,8 @@ def decompile(listing: Listing, ea):
         #
         # SYS 0 -> clear temp string
         if line.instruction == 'SYS' and line.arg(0) == 0:
-            line.set_comment('TMP = ""')
+            line.set_comment('// TMP = ""')
+            tmp_str = None
             line = line.next()
             continue
 
@@ -341,7 +367,8 @@ def decompile(listing: Listing, ea):
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 2:
                 line.set_comment('')
-                line2.set_comment(f'str_{line.arg(1)} = TMP;\n')
+                s = "" if tmp_str is None else tmp_str
+                line2.set_comment(f'str_{line.arg(1)} = {s};  // str_{line.arg(1)} = TMP\n')
                 add_global_str_idx(listing, line.arg(1))
                 line = line.next()
                 continue
@@ -351,8 +378,10 @@ def decompile(listing: Listing, ea):
         if line.instruction in ['LDB'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 13:
+                s = f'str_{line.arg(1)}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += str_{line.arg(1)}')
+                line2.set_comment(f'// TMP += {s}')
                 add_global_str_idx(listing, line.arg(1))
                 line = line.next()
                 continue
@@ -371,92 +400,133 @@ def decompile(listing: Listing, ea):
 
         #
         # SYS 3 -> put int into temp string
+        # local int
         if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 3:
+                v = line.arg_str(1)
+                s = f'#i.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment('TMP += #i.R15')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
+        # const int
         if line.instruction in ['LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 3:
                 v = line.arg(1)
+                s = f'#i.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #i.{v}')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
+        # global int
         if line.instruction in ['LDMB', 'LDMW', 'LDMD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 3:
                 v = line.arg_str(1)
+                s = f'#i.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #i.{v}')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
         #
         # SYS 4 -> put char into temp string
+        # local char
         if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 4:
+                v = line.arg_str(1)
+                s = f'#c.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment('TMP += #c.R15')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
+        # const char
         if line.instruction in ['LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 4:
                 v = line.arg(1)
+                s = f'#c.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #c.{v}')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
+        # global char
         if line.instruction in ['LDMB', 'LDMW', 'LDMD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 4:
                 v = line.arg_str(1)
+                s = f'#c.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #c.{v}')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
         #
         # SYS [5,6,7,8] - > put hex into temp string
+        # local hex
         if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) in [5, 6, 7, 8]:
                 w = line2.arg(0) - 4
+                v = line.arg_str(1)
+                s = f'#h{w}.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #h{w}.R15')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
+        # const hex
+        if line.instruction in ['LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
+            line2 = line.next()
+            if line2.instruction == 'SYS' and line2.arg(0) in [5, 6, 7, 8]:
+                w = line2.arg(0) - 4
+                v = line.arg(1)
+                s = f'#h{w}.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
+                line.set_comment(f'// {v} == 0x{v:02x}')
+                line2.set_comment(f'// TMP += {s}')
+                line = line2.next()
+                continue
+
+        # global hex
         if line.instruction in ['LDMB', 'LDMW', 'LDMD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) in [5, 6, 7, 8]:
                 w = line2.arg(0) - 4
                 v = line.arg_str(1)
+                s = f'#h{w}.{v}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(f'TMP += #h{w}.{v}')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
         #
         # SYS 1 -> put string into temp string
-        if line.instruction == 'LDW' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+        if line.instruction == 'LDW' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 1:
                 str_offset = line.arg(1)
                 listing.set_string0(str_offset)
                 line.set_arg_type(1, 'o')
-                comment = f'TMP += {listing.line(str_offset).arg(0)}'
+                s = listing.line(str_offset).arg(0)
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
                 line.set_comment('')
-                line2.set_comment(comment)
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
@@ -466,24 +536,27 @@ def decompile(listing: Listing, ea):
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 9:
                 a = line.arg(1)
-                lo = a & 0xFFFF
+                # lo = a & 0xFFFF
                 hi = a >> 16
-                line.set_comment(f'/* {a} is {hi}:{lo} */')
-                line2.set_comment(f'R15 = mbox(TMP, {hi});\n')
+                s = "" if tmp_str is None else tmp_str
+                line.set_comment(f'// ({hi} << 16)')
+                line2.set_comment(f'R15 = mbox({s}, {hi});  // R15 = mbox(TMP, {hi})\n')
                 line = line2.next()
                 continue
 
         #
         # SYS 12 -> print(temp string)
         if line.instruction == 'SYS' and line.arg(0) == 12:
-            line.set_comment('print(TMP);\n')
+            s = "" if tmp_str is None else tmp_str
+            line.set_comment(f'print({s});  // print(TMP)\n')
             line = line.next()
             continue
 
         #
         # SYS 26 -> backup(temp string)
         if line.instruction == 'SYS' and line.arg(0) == 26:
-            line.set_comment('backup(TMP);\n')
+            s = "" if tmp_str is None else tmp_str
+            line.set_comment(f'backup({s});  // backup(TMP)\n')
             line = line.next()
             continue
 
@@ -492,63 +565,75 @@ def decompile(listing: Listing, ea):
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 15:
+                s = "" if tmp_str is None else tmp_str
                 line.set_comment('')
-                line2.set_comment(f'label_{line.arg(1):04X} = TMP;\n')
+                line2.set_comment(f'label_{line.arg(1):04X} = {s};  // label_{line.arg(1):04X} = TMP\n')
                 line = line2.next()
                 continue
 
         #
-        # SYS 15 -> STREAMOUT(R15, R14h, R14l)
-        if line.instruction in ['LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
+        # SYS 15 -> StreamOut(R15, R14h, R14l)
+
+        # R15
+        # 1:    LDx|MOV    R15, Rx or const or gvar
+        #
+        # R14h
+        # 2:    MOV        R14, Rx
+        # 22:   RL         R14, 16
+        #   or
+        # 2:    LDD        R14, const<<16
+        #
+        # R14l
+        # 3:    OR|ORx     R14 or const
+        #
+        # flags (optional)
+        # 32:   ORD       R14, 0x40000000
+        #
+        # 4:    SYS       15
+        if line.instruction in ['MOV', 'LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
-            if line2.instruction == 'LDD' and line2.arg_str(0) == 'R14':
+            if line2.instruction in ['MOV', 'LDD'] and line2.arg_str(0) == 'R14':
                 line3 = line2.next()
-                if line3.instruction in ['ORB', 'ORW'] and line3.arg_str(0) == 'R14':
+                if line2.instruction == 'MOV' and \
+                   line3.instruction == 'RL' and line3.arg_str(0) == 'R14' and line3.arg(1) == 16:
+                    line22 = line3
+                    line3 = line22.next()
+                else:
+                    line22 = None
+                if line3.instruction in ['OR', 'ORB', 'ORW', 'ORD'] and line3.arg_str(0) == 'R14':
                     line4 = line3.next()
+                    if line4.instruction == 'ORD' and line4.arg_str(0) == 'R14' and line4.arg(1) == 0x40000000:
+                        line32 = line4
+                        line4 = line32.next()
+                    else:
+                        line32 = None
                     if line4.instruction == 'SYS' and line4.arg(0) == 15:
-                        d = line.arg(1)
-                        bit_len = line2.arg(1) >> 16
-                        pulse = line3.arg(1)
+
+                        if line32:
+                            line32.set_comment('// R15 is byte array')
+                            if line.instruction != 'MOV':
+                                a0 = line.arg(1)
+                                label = f'b_{a0:04X}'   # byte array
+                                listing.set_label(a0, label, False)
+                                line.set_arg_type(1, 'o')
+                        a0 = line.arg_str(1)
+
+                        if line22:
+                            a1 = line2.arg_str(1)
+                            line2.set_comment('')
+                            line22.set_comment('')
+                        else:
+                            a1 = line2.arg(1) >> 16
+                            line2.set_comment(f'// {a1} << 16')
+
+                        a2 = line3.arg_str(1)
+
                         line.set_comment('')
-                        line2.set_comment(f'/* ({bit_len} << 16) */')
                         line3.set_comment('')
-                        line4.set_comment(f'StreamOut({d}, {bit_len}, {pulse});\n')
+                        line4.set_comment(f'StreamOut({a0}, {a1}, {a2});\n')
+
                         line = line4.next()
                         continue
-
-        if line.instruction in ['MOV', 'LDB', 'LDW', 'LDD', 'LDMD'] and line.arg_str(0) == 'R15':
-            line2 = line.next()
-            if line2.instruction in ['MOV', 'LDMW', 'LDMD'] and line2.arg_str(0) == 'R14':
-                line3 = line2.next()
-                if line3.instruction == 'RL' and line3.arg_str(0) == 'R14' and line3.arg(1) == 16:
-                    line4 = line3.next()
-                    if line4.instruction in ['OR', 'ORB', 'ORW', 'ORD', 'ORMW'] and line4.arg_str(0) == 'R14':
-                        line5 = line4.next()
-                        if line5.instruction == 'ORD' and line5.arg_str(0) == 'R14':
-                            line6 = line5.next()
-                        else:
-                            line6 = line5
-                            line5 = None
-
-                        if line6.instruction == 'SYS' and line6.arg(0) == 15:
-                            if line.instruction[:2] == 'LD':
-                                a1 = line.arg(1)
-                                host_label = f'd_{a1:04X}'
-                                listing.set_label(a1, host_label, False)
-                                line.set_arg_type(1, 'o')
-
-                            d = line.arg_str(1)
-                            bit_len = line2.arg_str(1)
-                            pulse = line4.arg_str(1)
-                            line.set_comment('')
-                            line2.set_comment('')
-                            line3.set_comment('')
-                            line4.set_comment('')
-                            if line5:
-                                line5.set_comment('???')
-                            line6.set_comment(f'StreamOut({d}, {bit_len}, {pulse});\n')
-                            line = line6.next()
-                            continue
 
         #
         # SYS 16 -> (byte|word|dword)device.R14 = R15
@@ -565,7 +650,7 @@ def decompile(listing: Listing, ea):
                         set_device_label(listing, line2.arg(1), dev_label)
                         line.set_comment(f'')
                         line2.set_comment('')
-                        line3.set_comment(f'/* {line3.arg(1)}:{line2.arg(1)} is {w}:device.{dev_label} */')
+                        line3.set_comment(f'// {line3.arg(1)}:{line2.arg(1)} is {w}:device.{dev_label}')
                         line4.set_comment(f'({w})device.{dev_label} = {line.arg_str(1)};\n')
                         line = line4.next()
                         continue
@@ -670,9 +755,17 @@ def decompile(listing: Listing, ea):
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 17:
-                line.set_comment('')
-                line2.set_comment(f'R15 = device.prc_id{line.arg(1)}();\n')
-                line = line2.next()
+                proc_id = line.arg(1)
+                line3 = line2.next()
+                if line3.instruction == 'MOV' and line3.arg_str(1) == 'R15':
+                    line.set_comment('')
+                    line2.set_comment('')
+                    line3.set_comment(f'{line3.arg_str(0)} = device.prc_id{proc_id}();\n')
+                    line = line3.next()
+                else:
+                    line.set_comment('')
+                    line2.set_comment(f'R15 = device.prc_id{proc_id}();\n')
+                    line = line2.next()
                 continue
 
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
@@ -683,10 +776,18 @@ def decompile(listing: Listing, ea):
                     a = line2.arg(1)
                     proc_id = line.arg(1)
                     n = a >> 8
-                    line.set_comment('')
-                    line2.set_comment('')
-                    line3.set_comment(f'R15 = device.prc_id{proc_id}(<{n} args>);\n')
-                    line = line3.next()
+                    line4 = line3.next()
+                    if line4.instruction == 'MOV' and line4.arg_str(1) == 'R15':
+                        line.set_comment('')
+                        line2.set_comment('')
+                        line3.set_comment('')
+                        line4.set_comment(f'{line4.arg_str(0)} = device.prc_id{proc_id}(<{n} args>);\n')
+                        line = line3.next()
+                    else:
+                        line.set_comment('')
+                        line2.set_comment('')
+                        line3.set_comment(f'R15 = device.prc_id{proc_id}(<{n} args>);\n')
+                        line = line3.next()
                     continue
 
         #
@@ -818,48 +919,95 @@ def decompile(listing: Listing, ea):
                             continue
 
         #
-        # SYS 21 -> block|memcopy(fbuf[R15] = device.R14l, R14h)
-        if line.instruction in ['MOV', 'LDD'] and line.arg_str(0) == 'R15':
-            line2 = line.next()
-            if line2.instruction == 'LDW' and line2.arg_str(0) == 'R14':
-                line3 = line2.next()
-                if line3.instruction == 'ORD' and line3.arg_str(0) == 'R14':
-                    line4 = line3.next()
-                    if line4.instruction == 'SYS' and line4.arg(0) == 21:
-                        a1 = line.arg_str(1)
-                        dev_label = f'b_{line2.arg(1):04X}'
-                        set_device_label(listing, line2.arg(1), dev_label)
-                        a3 = line3.arg(1) >> 16
-                        if a1.isdigit():
-                            a1l = int(a1) & 0x00FFFFFF
-                            a1 = f'{a1l} | 0x{int(a1) & 0xFF000000:08x}'
-                            line.set_comment(f'/* {a1} */')
-                            a1 = a1l
-                        else:
-                            line.set_comment('')
-                        line2.set_comment(f'/* device.{dev_label} is byte array */')
-                        line3.set_comment('')
-                        line4.set_comment(f'memcopy(fbuf_?[{a1}] = device.{dev_label}, {a3});\n')
-                        # add_global_emem_var(listing, ?, ?)
-                        line = line4.next()
-                        continue
+        # SYS 21 -> block|memcopy(buf_R15h[R15l] = device.R14l, R14h)
+        #
+        # R15 | 0x00000000 - buf0
+        # R15 | 0x40000000 - buf1 and any other
+        # R15 | 0x20000000 - data
+        #
+        #
+        # R15
+        # 1:    LDD     R15, flags for emem_id | index
+        #   or
+        # 1:    MOV     R15, Rx
+        # 12:   ORD     R15, flags for emem_id      optional
+        #
+        # R14
+        # ?:    R14 = <expression>                  optional
+        #   or
+        # 2:    LDW     R14, device.offset
+        #
+        # 3:    RL      Rx, 16
+        # 32:   OR      R14, Rx
+        #   or
+        # 3:    ORD     R14, len<<16
+        #
+        # 4:    SYS     21
+        line1 = line
+        line2 = line1.next()
+        if line1.instruction == 'MOV' and line1.arg_str(0) == 'R15':
+            if line2.instruction == 'ORD' and line2.arg_str(0) == 'R15':
+                line12 = line2
+                line2 = line12.next()
+                last_r15 = [line1, line12]
+            else:
+                last_r15 = [line1]
+        elif line1.instruction == 'LDD' and line1.arg_str(0) == 'R15':
+            last_r15 = [line1]
+        else:
+            line2 = line1
 
-        if line.instruction == 'LDW' and line.arg_str(0) == 'R14':
-            line2 = line.next()
-            if line2.instruction == 'RL' and line2.arg(1) == 16:
-                line3 = line2.next()
-                if line3.instruction == 'OR' and line3.arg_str(0) == 'R14':
-                    line4 = line3.next()
-                    if line4.instruction == 'SYS' and line4.arg(0) == 21:
-                        dev_label = f'b_{line.arg(1):04X}'
-                        set_device_label(listing, line.arg(1), dev_label)
-                        line.set_comment('')
-                        line2.set_comment('')
-                        line3.set_comment('')
-                        line4.set_comment(f'memcopy(fbuf_?[R15] = device.{dev_label}, HWORD(R14));\n')
-                        # add_global_emem_var(listing, ?, ?)
-                        line = line4.next()
-                        continue
+        if line2 and line2.instruction == 'LDW' and line2.arg_str(0) == 'R14':
+            line3 = line2.next()
+            line4 = line3.next()
+            line32 = None
+            if line3.instruction == 'RL' and line3.arg(1) == 16 and \
+               line4.instruction == 'OR' and line3.arg_str(0) == line4.arg_str(1):
+                line32 = line4
+                line4 = line32.next()
+            elif line3.instruction == 'ORD' and line3.arg_str(0) == 'R14':
+                pass
+            else:
+                line4 = None
+
+            if line4 and line4.instruction == 'SYS' and line4.arg(0) == 21:
+                if not is_reg_preserved(last_r15, 'R15', line2):
+                    last_r15 = []
+                line1 = last_r15.pop(0) if last_r15 else None
+                line12 = last_r15.pop(0) if last_r15 else None
+
+                if line12:
+                    flags = line12.arg(1)
+                    line12.set_comment('// emem buf')
+                    idx = f'emem index: {line1.arg_str(1)}'
+                    line1.set_comment(f'// {idx}')
+                else:
+                    if line1:
+                        tmp = line1.arg(1)
+                        flags = tmp & 0xFF000000
+                        idx = tmp & 0xFFFFFF
+                        line1.set_comment(f'// emem index: {idx}')
+                    else:
+                        flags = 0
+                        idx = 'R15l'
+
+                emem_id = {0: 0, 0x20000000: 4}.get(flags, 1)
+                emem_label = get_emem_label(listing, emem_id)
+                line2.set_comment('// device.array variable offset')
+                dev_label = f'b_{line2.arg(1):04X}'
+                set_device_label(listing, line2.arg(1), dev_label, f'byte {dev_label}[];')
+
+                if line32:
+                    line32.set_comment('')
+                    a3 = line3.arg_str(0)
+                    line3.set_comment(f'length: {a3}')
+                else:
+                    a3 = line3.arg(1) >> 16
+                    line3.set_comment(f'// length: {a3} << 16')
+
+                line4.set_comment(f'memcopy({emem_label}[{idx}] = device.{dev_label}, {a3});\n')
+                line = line4.next()
+                continue
 
         #
         # SYS 22 -> block|memcopy(device.R14l = R15, R14h)
@@ -901,7 +1049,7 @@ def decompile(listing: Listing, ea):
                             line3.set_comment('')
                             line4.set_comment('')
                             line5.set_comment(f'memcopy(device.{dev_label} = fbuf_?[{line2.arg_str(1)}], {a3});\n')
-                            # add_global_emem_var(listing, ?, ?)
+                            # get_emem_label(listing, ?)
                             line = line5.next()
                             continue
 
@@ -920,7 +1068,7 @@ def decompile(listing: Listing, ea):
                         line2.set_comment('')
                         line3.set_comment(f'/* ({a3} << 16) */')
                         line4.set_comment(f'memcopy(device.{dev_label} = fbuf_?[{line2.arg_str(1)}], {a3});\n')
-                        # add_global_emem_var(listing, ?, ?)
+                        # get_emem_label(listing, ?)
                         line = line4.next()
                         continue
 
@@ -935,7 +1083,7 @@ def decompile(listing: Listing, ea):
                     line.set_comment('')
                     line2.set_comment('')
                     line3.set_comment(f'memcopy({dev_label} = fbuf_?[R15], {a3});\n')
-                    # add_global_emem_var(listing, ?, ?)
+                    # get_emem_label(listing, ?)
                     line = line3.next()
                     continue
 
@@ -970,27 +1118,29 @@ def decompile(listing: Listing, ea):
         #
         # SYS 29 -> FILENAME = TMP
         if line.instruction == 'SYS' and line.arg(0) == 29:
-            line.set_comment(f'FILENAME = TMP;\n')
+            s = "" if tmp_str is None else tmp_str
+            line.set_comment(f'FILENAME = {s};  // FILENAME = TMP\n')
             line = line.next()
             continue
 
         #
         # SYS 30 -> SaveToFile(...)
         # SYS 31 -> LoadFromFile(...)
+        # emem
         if line.instruction == 'LDD' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) in [30, 31]:
                 v = line.arg(1)
                 if v & 0x80000000 == 0x80000000:
                     # emem buf
-                    v1 = v ^ 0x80000000
-                    s = f'fbuf_{v1}'
-                    line.set_comment(f'/* 0x80000000 | {v1} */')
-                    line2.set_comment(f'{"SaveToFile" if line2.arg(0) == 30 else "LoadFromFile"}({s})\n')
-                    add_global_emem_var(listing, s, v1)
+                    emem_id = v ^ 0x80000000
+                    emem_label = get_emem_label(listing, emem_id)
+                    line.set_comment(f'// {emem_id} | 0x80000000')
+                    line2.set_comment(f'{"SaveToFile" if line2.arg(0) == 30 else "LoadFromFile"}({emem_label})\n')
                     line = line2.next()
                     continue
 
+        # ram_buf
         if line.instruction == 'LDW' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
             line2 = line.next()
             if line2.instruction == 'ORD' and line2.arg_str(0) == 'R15':
@@ -1002,19 +1152,33 @@ def decompile(listing: Listing, ea):
                     line.set_arg_type(1, 'o')
                     a3 = line2.arg(1) >> 16
                     listing.set_comment(a1, f'byte {label}[{a3}];')
-                    line.set_comment(f'/* {line.arg_str(1)} is a byte array, {a3} bytes length */')
-                    line2.set_comment(f'/* ({a3} << 16) */')
+                    line.set_comment(f'// {line.arg_str(1)} is a byte array, {a3} bytes length')
+                    line2.set_comment(f'// ({a3} << 16)')
                     line3.set_comment(f'{"SaveToFile" if line3.arg(0) == 30 else "LoadFromFile"}({line.arg_str(1)})\n')
                     line = line3.next()
                     continue
 
         #
-        # SYS 34 -> text = str
+        # SYS 33 -> text_R15 = temp string
+        if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
+            line2 = line.next()
+            if line2.instruction == 'SYS' and line2.arg(0) == 33:
+                s = "" if tmp_str is None else tmp_str
+                line.set_comment('')
+                line2.set_comment(f'text_{line.arg(1):04X} = {s};  // text_{line.arg(1):04X} = TMP\n')
+                line = line2.next()
+                continue
+
+        #
+        # SYS 34 -> text_R15 = temp string
         if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'SYS' and line2.arg(0) == 34:
-                line.set_comment('-')
-                line2.set_comment(f'TMP += text_{line.arg(1):04X}')
+                v = line.arg(1)
+                s = f'text_{v:04X}'
+                tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
+                line.set_comment('')
+                line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
 
@@ -1077,8 +1241,14 @@ def decompile(listing: Listing, ea):
         if line.instruction == 'CALL':
             a = line.arg(0)
             a = listing.get_label(a)
-            line.set_comment(f'{a}();\n')
-            line = line.next()
+            line2 = line.next()
+            if line2.instruction == 'MOV' and line2.arg_str(1) == 'R15':
+                line.set_comment('')
+                line2.set_comment(f'{line2.arg_str(0)} = {a}();\n')
+                line = line2.next()
+            else:
+                line.set_comment(f'{a}();\n')
+                line = line.next()
             continue
 
         #
@@ -1130,24 +1300,25 @@ def decompile(listing: Listing, ea):
                 line = line2.next()
                 continue
 
-        if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
+        if line.instruction in ['MOV', 'LDB', 'LDW', 'LDD'] and line.arg_str(0) == 'R15':
             line2 = line.next()
             if line2.instruction == 'POPR':
                 line3 = line2.next()
                 if line3.instruction == 'RET':
                     line.set_comment(f'return({line.arg_str(1)});')
+                    # TODO continue ??
 
         #
         #
         if line.instruction in ['STMB', 'STMW', 'STMD']:
-            line.set_comment(f'{line.arg_str(0)} = {line.arg_str(1)};\n')
+            line.set_comment(f'{line.arg_str(0)} = {line.arg_str(1)};')
             line = line.next()
             continue
 
         #
         #
         if line.instruction in ['LDMB', 'LDMW', 'LDMD']:
-            line.set_comment(f'{line.arg_str(0)} = {line.arg_str(1)};\n')
+            line.set_comment(f'{line.arg_str(0)} = {line.arg_str(1)};')
             line = line.next()
             continue
 
@@ -1160,32 +1331,29 @@ def decompile(listing: Listing, ea):
                 if line3.instruction == 'STEM' and line3.arg_str(1) == 'R14' and line3.arg_str(2) == 'R15':
                     line.set_comment(f'')
                     line2.set_comment(f'')
-                    b = line3.arg(0)
+                    emem_id = line3.arg(0)
                     idx = line2.arg(1)
                     v = line.arg(1)
-                    s = f'fbuf_{b}'
-                    line3.set_comment(f'{s}[{idx}] = {v};\n')
-                    add_global_emem_var(listing, s, b)
+                    emem_label = get_emem_label(listing, emem_id)
+                    line3.set_comment(f'{emem_label}[{idx}] = {v};\n')
                     line = line3.next()
                     continue
 
         if line.instruction == 'STEM':
-            b = line.arg(0)
+            emem_id = line.arg(0)
             idx = line.arg_str(1)
             v = line.arg_str(2)
-            s = f'fbuf_{b}'
-            line.set_comment(f'{s}[{idx}] = {v};\n')
-            add_global_emem_var(listing, s, b)
+            emem_label = get_emem_label(listing, emem_id)
+            line.set_comment(f'{emem_label}[{idx}] = {v};\n')
             line = line.next()
             continue
 
         if line.instruction == 'LDEM':
-            b = line.arg(0)
+            emem_id = line.arg(0)
             v = line.arg_str(1)
             idx = line.arg_str(2)
-            s = f'fbuf_{b}'
-            line.set_comment(f'{v} = {s}[{idx}];\n')
-            add_global_emem_var(listing, s, b)
+            emem_label = get_emem_label(listing, emem_id)
+            line.set_comment(f'{v} = {emem_label}[{idx}];\n')
             line = line.next()
             continue
 
@@ -1214,9 +1382,8 @@ def decompile_post(listing: Listing):
     # emem
     emem = listing.dis.presets['global']['emem']
     if emem:
-        listing.glob.append('')
-        for v, i in emem:
-            listing.glob.append(f'emem {v}={i};')
+        emem_vars = ', '.join(f'{e}={i}' for e, i in emem)
+        listing.glob.append(f'emem {emem_vars};')
         listing.glob.append('')
 
     # string

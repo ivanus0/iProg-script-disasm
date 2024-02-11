@@ -467,7 +467,9 @@ class IPR:
                     proc_id = self.stream.read_word_be()
                     menu_id = self.stream.read_byte()       # byte or -1
                     hotkey = self.stream.read_str(b'\r')
-                    label = f'{name.replace(" ", "_")}'
+                    label = f'{name.replace(" ", "_").replace("&", "")}'
+                    if menu_id == 0xFF:
+                        menu_id = ''
                     self.host_listing.set_label(proc_id, label)
                     self.host_listing.set_flag_proc(proc_id)
                     code.append(f'    {name},{label},{menu_id},{hotkey}')
@@ -794,14 +796,11 @@ class IPR:
 
                 elif t == b'P':
                     # Pages
-                    # name_id = self.stream.read_word_be()      ## ? unsused
                     left = self.stream.read_word_be()
                     top = self.stream.read_word_be()
                     width = self.stream.read_word_be()
                     height = self.stream.read_word_be()
-                    # name = f'pages_{name_id:04X}'
                     f = {
-                        # 'name': name,
                         'left': left,
                         'top': top,
                         'width': width,
@@ -860,16 +859,27 @@ class IPR:
         self.host_listing.set_label(lbl, f'SelBegin')
         lbl = self.stream.read_word_be()
         self.host_listing.set_label(lbl, f'SelEnd')
+        lbl += 4
+        self.host_listing.set_label(lbl, f'Res1')
+        lbl += 4
+        self.host_listing.set_label(lbl, f'Res2')
         lbl = self.stream.read_word_be()
         if lbl != 0xFFFF:
-            lbl &= 0x7FFF
-            self.host_listing.set_label(lbl, f'OnCreate_{lbl:04X}')
-            self.host_listing.set_flag_proc(lbl)
+            if lbl & 0x8000:
+                lbl &= 0x7FFF
+                self.host_listing.set_label(lbl, f'OnCreate_{lbl:04X}')
+                self.host_listing.set_flag_proc(lbl)
+            else:
+                print(f'todo1: {lbl:04X}')
 
         lbl = self.stream.read_word_be()
         if lbl != 0xFFFF:
-            lbl &= 0x7FFF
-            self.host_listing.set_label(lbl, f'Res2_{lbl:04X}')
+            if lbl & 0x8000:
+                lbl &= 0x7FFF
+                self.host_listing.set_label(lbl, f'Idle_{lbl:04X}')
+                self.host_listing.set_flag_proc(lbl)
+            else:
+                print(f'todo2: {lbl:04X}')
 
         nextblock_offset = self.stream.read_word_be()
         host_bytescode_offset = self.stream.pos
@@ -880,6 +890,7 @@ class IPR:
         self.host_listing.set_mem(host_bytecode)
         code.append('')
         code.append('$HOST')
+        code.append('')
         code.extend(self.host_listing.disassemble(DisassemblerIPR, {
             'type': 'host',
             'device_labels': []
@@ -911,7 +922,9 @@ class IPR:
         self.b_device_script_crc_end = self.stream.pos
 
         code.append('')
+        code.append('')
         code.append('$DEVICE')
+        code.append('')
 
         decrypted_bin = decode_devicebytecode(device_bytecode.bin, crc)
         if decrypted_bin is not None:

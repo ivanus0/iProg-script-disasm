@@ -31,11 +31,14 @@ def decompile_cal(cal_filename):
 
 
 def decompile(source_filename):
-    file_ext = os.path.splitext(source_filename)[1]
-    if file_ext == '.ipr':
-        decompile_ipr(source_filename)
-    elif file_ext == '.cal':
-        decompile_cal(source_filename)
+    if os.path.isfile(source_filename):
+        file_ext = os.path.splitext(source_filename)[1]
+        if file_ext == '.ipr':
+            decompile_ipr(source_filename)
+        elif file_ext == '.cal':
+            decompile_cal(source_filename)
+    else:
+        print('No such file')
 
 
 if len(sys.argv) > 1:

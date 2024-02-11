@@ -112,13 +112,13 @@ class DisassemblerCAL:
         t = self.arg_type(arg)
         if t == 'r':
             # variable
-            return f'var{v}'
+            return {48: 'SELSTART', 49: 'SELEND', 50: 'BUFSIZE', 51: 'CURSORADR'}.get(v, f'var{v}')
         if t == 's':
             # string
             return f'str{v}'
         elif t == 'c':
             # ui field
-            return self.listing.ui[v]
+            return self.presets['ui'][v]
         if t == 'B':
             # byte
             return f'0x{v:02x}'
@@ -158,8 +158,8 @@ class DisassemblerCAL:
                 break
             string.append(w)
         length = self.listing.mem.pos - ea
-        string = bytearray(string).decode('windows-1251')
-        self.listing.set_command(ea, length, '// {0}', [(f'{self.listing.esc_string(string)}', 'd')])
+        string = bytes(string).decode('cp1251', errors='ignore')
+        self.listing.set_command(ea, length, '{0}', [(f'{self.listing.esc_string(string)}', 'd')])
         self.listing.mem.pos = p
         return string
 
@@ -285,7 +285,7 @@ class DisassemblerCAL:
                 t1 = m.read_byte()
                 set_command('{0} = {0} >> {1}', [(t0, 'r'), (t1, 'd')])
 
-            elif c == 0x14:
+            elif c == 0x16:
                 t0 = m.read_byte()
                 t1 = m.read_byte()
                 set_command('{0} = {0} << {1}', [(t0, 'r'), (t1, 'r')])
@@ -660,10 +660,11 @@ class CAL:
         self.script_listing = []
         self.stream = STREAM()
         self.data = STREAM()
+        self._last_key = 0
         try:
             self.stream.load_hex(filename)
         except ValueError:
-            print('Probably file as source code')
+            print('Maybe the source code or executable')
 
     def get_lst(self):
         lst = []
@@ -674,15 +675,18 @@ class CAL:
     def get_data(self):
         return self.data.get_all()
 
-    def read_str(self, key):
+    def read_str(self, key=None):
+        if key is not None:
+            self._last_key = key & 0xFF
         text = []
         while True:
-            b = key ^ self.data.read_byte()
-            key += 1
+            b = self._last_key ^ self.data.read_byte()
             if b == 0:
                 break
+            if b != 13:     # \r - list separator -> skip key increment
+                self._last_key = (self._last_key + 1) & 0xFF
             text.append(b)
-        return bytearray(text).decode('windows-1251')
+        return bytes(text).decode('cp1251', errors='ignore')
 
     def decompile_window(self):
         code = []
@@ -740,13 +744,28 @@ class CAL:
                 code.append(f'{" " * pad}HexDigit({name}, "{text}", {left}, {top}, {width}, {s});')
             elif chr(c) == 'T':
                 # Text
-                code.append('!!!B')
+                code.append('!!!T')
+                print('!!!T')
             elif chr(c) == 'B':
                 # Checkbox
-                code.append('!!!B')
+                text = self.read_str(c)
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                name = f'checkbox_{ctrl_id}'
+                self.ui[ctrl_id] = name
+                ctrl_id += 1
+                code.append(f'{" " * pad}Checkbox({name}, "{text}", {left}, {top});')
             elif chr(c) == 'C':
                 # Combobox
-                code.append('!!!C')
+                text = self.read_str(c)
+                left = self.data.read_word_le()
+                top = self.data.read_word_le()
+                width = self.data.read_word_le()
+                items = ', '.join(f'"{s}"' for s in self.read_str().split('\r'))
+                name = f'combobox_{ctrl_id}'
+                self.ui[ctrl_id] = name
+                ctrl_id += 1
+                code.append(f'{" " * pad}Combobox({name}, "{text}", {left}, {top}, {width}, {items});')
             elif chr(c) == 'D':
                 # Digit
                 text = self.read_str(c)
@@ -773,37 +792,46 @@ class CAL:
     def decompile(self):
         if self.stream.len == 0:
             return
-        code = []
 
-        self.data.set_binary(decode_cal(self.stream.bin))
+        decrypted_bin = decode_cal(self.stream.bin)
+        if decrypted_bin is None:
+            return
+
+        code = []
+        self.data.set_binary(decrypted_bin)
         self.listing = Listing()
-        self.listing.ui = self.ui
 
         on_show = self.data.read_word_le()    # 0 After load
         on_apply = self.data.read_word_le()   # 1 Button Click
-        on_select = self.data.read_word_le()  # 2 Select hexdump range
+        on_change = self.data.read_word_le()  # 2 Select hexdump range
         unused = self.data.read_word_le()
         if on_show != 0xFFFF:
-            self.listing.set_label(on_show, 'OnShow')
-            self.listing.set_flag_proc(on_show)
-        else:
-            code.append('// OnShow don\'t used')
+            if on_show <= self.data.len:
+                self.listing.set_label(on_show, 'OnShow')
+                self.listing.set_flag_proc(on_show)
+            else:
+                code.append(f'// OnShow ep: 0x{on_apply:06X} is out of bounds!!!')
         if on_apply != 0xFFFF:
-            self.listing.set_label(on_apply, 'OnApply')
-            self.listing.set_flag_proc(on_apply)
-        else:
-            code.append('// OnApply don\'t used')
-        if on_select != 0xFFFF:
-            self.listing.set_label(on_select, 'OnChange')
-            self.listing.set_flag_proc(on_select)
-        else:
-            code.append('// OnSelect don\'t used')
-        code.append(f'// unused field = {unused}')
+            if on_apply <= self.data.len:
+                self.listing.set_label(on_apply, 'OnApply')
+                self.listing.set_flag_proc(on_apply)
+            else:
+                code.append(f'// OnApply ep: 0x{on_apply:06X} is out of bounds!!!')
+        if on_change != 0xFFFF:
+            if on_change <= self.data.len:
+                self.listing.set_label(on_change, 'OnChange')
+                self.listing.set_flag_proc(on_change)
+            else:
+                code.append(f'// OnChange ep: 0x{on_apply:06X} is out of bounds!!!')
+        if unused != 0xFFFF:
+            code.append(f'// unused field = 0x{unused:06X}')
 
         self.decompile_window()
 
         bytecode = self.data.read_stream(self.data.len-self.data.pos)
         bytecode.mem_offset = bytecode.file_offset
         self.listing.set_mem(bytecode)
-        code.extend(self.listing.disassemble(DisassemblerCAL))
+        code.extend(self.listing.disassemble(DisassemblerCAL, {
+            'ui': self.ui
+        }))
         self.script_listing = code

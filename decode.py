@@ -149,7 +149,7 @@ def decode_cal(data):
     datalen = len(data)-32
     # размер data должен быть кратен 32байт
     if datalen % 32:
-        # Для декомпиляции некодированного дампа
+        print('## data size is not a multiple of 32, the file is probably damaged')
         return bytearray(data)
 
     sn = get_sn()
@@ -168,5 +168,5 @@ def decode_cal(data):
     if crc == crc16_1021(data2):
         return data2
     else:
-        # Для декомпиляции некодированного дампа
-        return bytearray(data)
+        print('## invalid crc bytecode, probably incorrect sn')
+        return None
