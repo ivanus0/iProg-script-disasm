@@ -1,3 +1,4 @@
+import decode
 from stream import STREAM, MemoryNotDefined
 from decode import Decoder
 from listing import Listing
@@ -448,12 +449,16 @@ class IPR:
 
         # Исходные данные, могут быть кодированными
         # ipr.extend(self.stream.get_block(self.b_device_script_crypt_start, self.b_device_script_crypt_end))
+        # ipr.extend(self.stream.get_block(self.b_device_script_crc_start, self.b_device_script_crc_end))
 
         # раскодированные данные
-        ipr.extend(self.device_script.get_all())
+        data = self.device_script.get_all()
+        ipr.extend(data)
+        crc = decode.crc16(data)
+        ipr.append(crc >> 8)
+        ipr.append(crc & 0xFF)
 
-        ipr.extend(self.stream.get_block(self.b_device_script_crc_start, self.b_device_script_crc_end))
-        return bytearray(ipr)
+        return bytes(ipr)
 
     def decompile_menu(self):
         start = self.stream.pos
