@@ -141,12 +141,13 @@ class Listing:
             line.name = name
 
     def set_command(self, ea: int, length: int, instruction, args: list):
-        line = self.line(ea, True)
-        line.ea = ea
-        line.len = length
-        line.instruction = instruction
-        line.args = args
-        self.set_flags(ea, set('c'))
+        if length > 0:
+            line = self.line(ea, True)
+            line.ea = ea
+            line.len = length
+            line.instruction = instruction
+            line.args = args
+            self.set_flags(ea, set('c'))
 
     def set_comment(self, ea: int, comment):
         self.line(ea, True).comment = comment
@@ -215,12 +216,13 @@ class Listing:
 
         # дизассемблировать неиспользуемый код...
         line = self.line(ea_first)
-        while line.ea <= ea_last:
-            if 'u' in line.flags:
-                self.dis.disasm_command(line.ea)
-                line = self.line(line.ea)
-                self.set_flag_unused(line.ea)
-            line = line.next()
+        if '?' not in line.flags:
+            while line.ea <= ea_last:
+                if 'u' in line.flags:
+                    self.dis.disasm_command(line.ea)
+                    line = self.line(line.ea)
+                    self.set_flag_unused(line.ea)
+                line = line.next()
 
         if self.code_start is None or ea_first < self.code_start:
             self.code_start = ea_first

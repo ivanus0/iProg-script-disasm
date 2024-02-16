@@ -2,7 +2,77 @@ import struct
 import des
 
 
-def crc16(data: bytearray):
+class Decoder:
+    most_popular_sn = [1, 777, 19]
+    sn_list = None
+    # sn_list = range(65535)
+    ignore_check = False
+
+    @classmethod
+    def touch(cls, sn_list):
+        cls.sn_list = sn_list
+
+    @classmethod
+    def serial_numbers(cls):
+        if cls.sn_list:
+            for sn in cls.sn_list:
+                yield sn
+        else:
+            for sn in cls.most_popular_sn:
+                yield sn
+            # for sn in (sn for sn in range(0xFFFF) if sn not in cls.most_popular_sn):
+            #     yield sn
+
+    @classmethod
+    def decode_ipr_bytecode(cls, data, crc):
+        if crc == crc16(data):
+            # bytecode не закодирован
+            print("## device bytecode is not encoded")
+            return data
+
+        for sn in cls.serial_numbers():
+            print(f'try sn: {sn:>5} \r', end='')
+            r = decode_ipr_v1(data, crc, sn)
+            if r is not None:
+                print(f"## device bytecode is encoded (sn: {sn})")
+                return r
+
+            # if not decode_ipr_v2_fastcheck(data, crc, sn, 0):
+            #     continue
+
+            r = decode_ipr_v2(data, crc, sn)
+            if r is not None:
+                print(f"## device bytecode is DES encoded (sn: {sn})")
+                return r
+
+        print("## bad bytecode or unknown encoding")
+        return None
+
+    @classmethod
+    def decode_cal_bytecode(cls, data):
+        data_len = len(data)
+        if data_len < 32+2:  # minimum 1 block +2 bytes crc
+            print('## data size is too small, the file is corrupted')
+            return None
+        data_len = 32 * (data_len // 32) - 32
+        _data = data[:data_len]
+        _pad = data[data_len:]
+        crc = _pad[0] << 8 | _pad[1]
+        if len(_pad) != 32:
+            print('## data size is not a multiple of 32, the file is probably corrupted')
+
+        for sn in cls.serial_numbers():
+            print(f'try sn: {sn:>5} \r', end='')
+            r = decode_cal(_data, crc, sn)
+            if r is not None:
+                print(f"## calculator bytecode is encoded (sn: {sn})")
+                return r
+
+        print("## bad bytecode or unknown encoding")
+        return None
+
+
+def crc16(data):
     crc = 0xFFFF
     for i in range(len(data)):
         crc ^= data[i] << 8
@@ -14,7 +84,7 @@ def crc16(data: bytearray):
     return crc & 0xFFFF
 
 
-def crc16_1021(data: bytearray):
+def crc16_1021(data):
     crc = 0xFFFF
     for i in range(len(data)):
         crc ^= data[i] << 8
@@ -47,27 +117,7 @@ def get_sn():
         return 0xFFFF
 
 
-def decode_devicebytecode(data, crc):
-    if crc == crc16(data):
-        # bytecode не закодирован
-        print("## device bytecode is not encoded")
-        return data
-
-    r = decode_v1(data, crc)
-    if r is not None:
-        print("## device bytecode is encoded v1")
-        return r
-
-    r = decode_v2(data, crc)
-    if r is not None:
-        print(f"## device bytecode is DES encoded (iprog sn={get_sn()})")
-        return r
-
-    print("bad bytecode or unknown encoding")
-    return None
-
-
-def decode_v1(data, crc):
+def decode_ipr_v1(data, crc, sn):
     # Закодирован
     # v1
     tbl1 = (0x11, 0x22, 0x33, 0x14, 0x25, 0x36, 0x17, 0x28, 0x39, 0x1A, 0x2B, 0x3C, 0x1D, 0x2E, 0x3F, 0x35)
@@ -78,7 +128,7 @@ def decode_v1(data, crc):
     crcpad[1] = crc & 0xFF
     data2 += crcpad
 
-    sn = get_sn()
+    # sn = get_sn()
     x = tbl1[sn & 0x0F]
 
     data2[datalen] ^= data2[0]
@@ -100,27 +150,28 @@ def decode_v1(data, crc):
     if crc2 == crc16(data2):
         return data2
     else:
-        return None
+        return data2 if Decoder.ignore_check else None
 
 
-def decode_v2(data, crc):
+def decode_ipr_v2(data, crc, sn):
     # Закодирован DES
     # v2
 
-    def get_xyz(sn):
+    def get_xyz(seed):
         result = 0
         for i in range(32):
-            if sn & 0x80000000 == 0:
+            if seed & 0x80000000 == 0:
                 result = (result ^ 0x8437A5BE) * 0x11
             else:
                 result = (result * 0x0B) ^ (result * 0xB0000)
-            sn <<= 1
+            seed <<= 1
         return result & 0xFFFFFFFF
 
     if len(data) % 8:
         return None
 
-    k = get_xyz(get_sn())
+    # sn = get_sn()
+    k = get_xyz(sn)
 
     # DES ECB
     key = struct.pack('>II', k, k ^ 0xA5A5A5A5)
@@ -140,33 +191,69 @@ def decode_v2(data, crc):
     if crc == crc16(decoded):
         return decoded
     else:
-        return None
+        return decoded if Decoder.ignore_check else None
 
 
-def decode_cal(data):
-    # декодер .cal
-    tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
-    datalen = len(data)-32
-    # размер data должен быть кратен 32байт
-    if datalen % 32:
-        print('## data size is not a multiple of 32, the file is probably damaged')
-        return bytearray(data)
+def decode_ipr_v2_fastcheck(data, _crc, sn, offset=0):
+    # Search pattern.
+    # PUSHR  xx         5A xx
+    # ENTER  yy, zz     5F yz
+    # ...
+    # Procs may start with a different pattern if they have no variables and arguments
 
-    sn = get_sn()
-    x = tbl1[sn & 0x0F]
-    z = (x * ((sn >> 8) ^ sn) & 0xFF) ^ data[datalen] ^ data[datalen + 1]
-    buf = [0] * 32
-    data2 = bytearray(data[:datalen])
-    for p in range(0, datalen, 32):
+    def get_xyz(seed):
+        result = 0
         for i in range(32):
-            buf[i ^ x] = data2[p + i] ^ (z & 0xFF)
-            z = (z + 0x55) & 0xFFFFFFFF
+            if seed & 0x80000000 == 0:
+                result = (result ^ 0x8437A5BE) * 0x11
+            else:
+                result = (result * 0x0B) ^ (result * 0xB0000)
+            seed <<= 1
+        return result & 0xFFFFFFFF
+
+    maxblocks = 1 + (offset + 2) // 8
+    k = get_xyz(sn)
+
+    # DES ECB
+    key = struct.pack('>II', k, k ^ 0xA5A5A5A5)
+
+    dkeys = tuple(des.derive_keys(key))[::-1]
+    tmp = []
+    blocks = (struct.unpack(">Q", data[i: i + 8])[0] for i in range(0, len(data), 8))
+    for block in blocks:
+        tmp.append(des.encode_block(block, dkeys))
+        if len(tmp) >= maxblocks:
+            break
+
+    decoded = bytearray(b''.join(struct.pack(">Q", block) for block in tmp))
+
+    # Additional iprog decoding
+    for i in range(len(decoded)):
+        decoded[i] ^= k & 0xFF
+        k += 1
+
+    if decoded[offset] == 0x5A and decoded[offset+1] < 32 and decoded[offset+2] == 0x5F:
+        print(f'## possible sn: {sn}')
+        return True
+    else:
+        return False
+
+
+def decode_cal(data, crc, sn):
+    tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
+    x = tbl1[sn & 0x0F]
+    z = (x * ((sn >> 8) ^ sn) & 0xFF) ^ (crc >> 8) ^ (crc & 0xFF)
+    z &= 0xFF
+    buf = [0] * 32
+    data2 = bytearray(data)
+    for p in range(0, len(data2), 32):
+        for i in range(32):
+            buf[i ^ x] = data2[p + i] ^ z
+            z = (z + 0x55) & 0xFF
         for i in range(32):
             data2[p + i] = buf[i]
 
-    crc = data[datalen] << 8 | data[datalen + 1]
     if crc == crc16_1021(data2):
         return data2
     else:
-        print('## invalid crc bytecode, probably incorrect sn')
-        return None
+        return data2 if Decoder.ignore_check else None

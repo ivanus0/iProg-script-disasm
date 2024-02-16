@@ -1,5 +1,7 @@
+import argparse
 import os
 import sys
+from decode import Decoder
 from ipr import IPR
 from cal import CAL
 
@@ -41,9 +43,28 @@ def decompile(source_filename):
         print('No such file')
 
 
-if len(sys.argv) > 1:
-    filename = sys.argv[1]
-    print(f'Processing: {filename}')
-    decompile(filename)
-else:
-    print(sys.argv[0] + ' [script.ipr | calc.cal]')
+def get_args():
+    parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg')
+    parser.add_argument('filename', help='файл скрипта .ipr или файл калькулятора .cal')
+    popular_sn = ', '.join(f'"{sn}"' for sn in Decoder.most_popular_sn)
+    parser.add_argument('-sn', nargs='+', type=int, metavar='серийник',
+                        help='использовать эти серийники для раскодирования, '
+                             f'если не указано, пробуем следующие номера: {popular_sn}'
+                        )
+    parser.add_argument('--ignore-check',
+                        help='игнорировать проверку расшифровки и попытаться сохранить как есть', action='store_true')
+    args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
+    return args
+
+
+def main():
+    args = get_args()
+    print(f'Processing: {args.filename}')
+    if args.sn is not None:
+        Decoder.touch(args.sn)
+    if args.ignore_check:
+        Decoder.ignore_check = args.ignore_check
+    decompile(args.filename)
+
+
+main()

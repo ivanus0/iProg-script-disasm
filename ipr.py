@@ -1,5 +1,5 @@
 from stream import STREAM, MemoryNotDefined
-from decode import decode_devicebytecode
+from decode import Decoder
 from listing import Listing
 from ipr_decomp import decompile, decompile_post
 
@@ -926,7 +926,7 @@ class IPR:
         code.append('$DEVICE')
         code.append('')
 
-        decrypted_bin = decode_devicebytecode(device_bytecode.bin, crc)
+        decrypted_bin = Decoder.decode_ipr_bytecode(device_bytecode.bin, crc)
         if decrypted_bin is not None:
             device_bytecode.bin = decrypted_bin
             self.device_script = device_bytecode

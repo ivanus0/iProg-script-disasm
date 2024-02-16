@@ -1306,7 +1306,6 @@ def decompile(listing: Listing, ea: int):
                 line3 = line2.next()
                 if line3.instruction == 'RET':
                     line.set_comment(f'return({line.arg_str(1)});')
-                    # TODO continue ??
 
         #
         #

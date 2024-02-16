@@ -1,5 +1,5 @@
 from stream import STREAM, MemoryNotDefined
-from decode import decode_cal
+from decode import Decoder
 from listing import Listing
 
 
@@ -793,45 +793,48 @@ class CAL:
         if self.stream.len == 0:
             return
 
-        decrypted_bin = decode_cal(self.stream.bin)
+        decrypted_bin = Decoder.decode_cal_bytecode(self.stream.bin)
         if decrypted_bin is None:
             return
 
         code = []
         self.data.set_binary(decrypted_bin)
         self.listing = Listing()
+        try:
+            on_show = self.data.read_word_le()    # 0 After load
+            on_apply = self.data.read_word_le()   # 1 Button Click
+            on_change = self.data.read_word_le()  # 2 Select hexdump range
+            unused = self.data.read_word_le()
+            if on_show != 0xFFFF:
+                if on_show <= self.data.len:
+                    self.listing.set_label(on_show, 'OnShow')
+                    self.listing.set_flag_proc(on_show)
+                else:
+                    code.append(f'// OnShow ep: 0x{on_apply:06X} is out of bounds!!!')
+            if on_apply != 0xFFFF:
+                if on_apply <= self.data.len:
+                    self.listing.set_label(on_apply, 'OnApply')
+                    self.listing.set_flag_proc(on_apply)
+                else:
+                    code.append(f'// OnApply ep: 0x{on_apply:06X} is out of bounds!!!')
+            if on_change != 0xFFFF:
+                if on_change <= self.data.len:
+                    self.listing.set_label(on_change, 'OnChange')
+                    self.listing.set_flag_proc(on_change)
+                else:
+                    code.append(f'// OnChange ep: 0x{on_apply:06X} is out of bounds!!!')
+            if unused != 0xFFFF:
+                code.append(f'// unused field = 0x{unused:06X}')
 
-        on_show = self.data.read_word_le()    # 0 After load
-        on_apply = self.data.read_word_le()   # 1 Button Click
-        on_change = self.data.read_word_le()  # 2 Select hexdump range
-        unused = self.data.read_word_le()
-        if on_show != 0xFFFF:
-            if on_show <= self.data.len:
-                self.listing.set_label(on_show, 'OnShow')
-                self.listing.set_flag_proc(on_show)
-            else:
-                code.append(f'// OnShow ep: 0x{on_apply:06X} is out of bounds!!!')
-        if on_apply != 0xFFFF:
-            if on_apply <= self.data.len:
-                self.listing.set_label(on_apply, 'OnApply')
-                self.listing.set_flag_proc(on_apply)
-            else:
-                code.append(f'// OnApply ep: 0x{on_apply:06X} is out of bounds!!!')
-        if on_change != 0xFFFF:
-            if on_change <= self.data.len:
-                self.listing.set_label(on_change, 'OnChange')
-                self.listing.set_flag_proc(on_change)
-            else:
-                code.append(f'// OnChange ep: 0x{on_apply:06X} is out of bounds!!!')
-        if unused != 0xFFFF:
-            code.append(f'// unused field = 0x{unused:06X}')
+            self.decompile_window()
 
-        self.decompile_window()
-
-        bytecode = self.data.read_stream(self.data.len-self.data.pos)
-        bytecode.mem_offset = bytecode.file_offset
-        self.listing.set_mem(bytecode)
-        code.extend(self.listing.disassemble(DisassemblerCAL, {
-            'ui': self.ui
-        }))
-        self.script_listing = code
+            bytecode = self.data.read_stream(self.data.len-self.data.pos)
+            bytecode.mem_offset = bytecode.file_offset
+            self.listing.set_mem(bytecode)
+            code.extend(self.listing.disassemble(DisassemblerCAL, {
+                'ui': self.ui
+            }))
+            self.script_listing = code
+        except (SyntaxError, MemoryNotDefined) as e:
+            print(e)
+            print('The file is corrupted')
