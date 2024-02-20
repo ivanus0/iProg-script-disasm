@@ -44,17 +44,24 @@ def decompile(source_filename):
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg')
+    # filename must be the first argument, otherwise is conflicts with -sn <last num>
+    parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg',
+                                     usage='%(prog)s filename [-sn серийник [серийник ...]]',
+                                     add_help=False)
     parser.add_argument('filename', help='файл скрипта .ipr или файл калькулятора .cal')
     popular_sn = ', '.join(f'"{sn}"' for sn in Decoder.most_popular_sn)
     parser.add_argument('-sn', nargs='+', type=int, metavar='серийник',
                         help='использовать эти серийники для раскодирования, '
-                             f'если не указано, пробуем следующие номера: {popular_sn}'
-                        )
+                             f'если не указано, пробуем следующие номера: {popular_sn}')
     parser.add_argument('--ignore-check',
                         help='игнорировать проверку расшифровки и попытаться сохранить как есть', action='store_true')
-    args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
-    return args
+
+    if sys.argv[1:]:
+        args = parser.parse_args()
+        return args
+    else:
+        parser.print_help()
+        parser.exit()
 
 
 def main():
