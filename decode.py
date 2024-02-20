@@ -45,6 +45,11 @@ class Decoder:
                 print(f"## device bytecode is DES encoded (sn: {sn})")
                 return r
 
+            r = decode_ipr_v2(data, crc, sn, 0xB33506FB)
+            if r is not None:
+                print(f"## device bytecode is DES (777) encoded (sn: {sn})")
+                return r
+
         print("## bad bytecode or unknown encoding")
         return None
 
@@ -153,7 +158,7 @@ def decode_ipr_v1(data, crc, sn):
         return data2 if Decoder.ignore_check else None
 
 
-def decode_ipr_v2(data, crc, sn):
+def decode_ipr_v2(data, crc, sn, sub_key=0xA5A5A5A5):
     # Закодирован DES
     # v2
 
@@ -174,7 +179,7 @@ def decode_ipr_v2(data, crc, sn):
     k = get_xyz(sn)
 
     # DES ECB
-    key = struct.pack('>II', k, k ^ 0xA5A5A5A5)
+    key = struct.pack('>II', k, k ^ sub_key)
 
     dkeys = tuple(des.derive_keys(key))[::-1]
     tmp = []
