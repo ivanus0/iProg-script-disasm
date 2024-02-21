@@ -217,7 +217,7 @@ def decompile(listing: Listing, ea: int):
                                 2):
                             if lineincr is not None:
                                 lineincr.set_comment('_incr_')
-                            linee.set_comment('}')
+                            linee.set_comment('}  // for')
                             break
 
                         elif linee.instruction == 'JMP' and linee.arg(0) == line2.ea:
@@ -255,7 +255,7 @@ def decompile(listing: Listing, ea: int):
                     if linee.instruction == 'JMP' and linee.arg(0) == line2.ea and linee.next().ea == line2.arg(2):
                         if lineincr is not None:
                             lineincr.set_comment('_incr_')
-                        linee.set_comment('}')
+                        linee.set_comment('}  // for')
                         break
 
                     elif linee.instruction == 'JMP' and linee.arg(0) == line2.ea:
@@ -269,6 +269,34 @@ def decompile(listing: Listing, ea: int):
 
                 line = line2.next()
                 continue
+
+        #
+        # while(_cond_) ...
+        if line.instruction in ['LDB', 'LDW', 'LDD'] and line.arg_type(0) == 'r':
+            line2 = line.next()
+            if line2.instruction[:4] == 'CMPJ' and line2.arg(1) == line.arg(0):
+                ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(
+                    line2.instruction[4:], '??')
+
+                if line.name:
+                    line2.set_comment(f'while ({line2.arg_str(0)} {ncond} {line2.arg_str(1)}) {{')
+
+                    linee = line2.next()
+                    while 'P' not in linee.flags:
+                        if linee.instruction == 'JMP' and linee.arg(0) == line.ea and linee.next().ea == line2.arg(2):
+                            linee.set_comment('}  // while')
+                            break
+
+                        elif linee.instruction == 'JMP' and linee.arg(0) == line.ea:
+                            linee.set_comment('  continue;')
+
+                        elif linee.instruction == 'JMP' and linee.arg(0) == line2.arg(2):
+                            linee.set_comment('  break;')
+
+                        linee = linee.next()
+
+                    line = line2.next()
+                    continue
 
         #
         # if
@@ -529,6 +557,15 @@ def decompile(listing: Listing, ea: int):
                 line2.set_comment(f'// TMP += {s}')
                 line = line2.next()
                 continue
+
+        #
+        # SYS 43 -> put FILENAME into temp string
+        if line.instruction == 'SYS' and line.arg(0) == 43:
+            s = 'FILENAME'
+            tmp_str = s if tmp_str is None else f'{tmp_str} + {s}'
+            line.set_comment(f'// TMP += {s}')
+            line = line.next()
+            continue
 
         #
         # SYS 9 -> mbox(temp string, NUM)
