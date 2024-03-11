@@ -112,6 +112,7 @@ class DisassemblerCAL:
         t = self.arg_type(arg)
         if t == 'r':
             # variable
+            # noinspection SpellCheckingInspection
             return {48: 'SELSTART', 49: 'SELEND', 50: 'BUFSIZE', 51: 'CURSORADR'}.get(v, f'var{v}')
         if t == 's':
             # string

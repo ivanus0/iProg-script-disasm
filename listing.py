@@ -16,6 +16,21 @@ class Line:
         self.name = None
         self.comment = None
 
+    def __eq__(self, other):
+        return self.ea == other.ea
+
+    def __lt__(self, other):
+        return self.ea < other.ea
+
+    def __le__(self, other):
+        return self.ea <= other.ea
+
+    def __gt__(self, other):
+        return self.ea > other.ea
+
+    def __ge__(self, other):
+        return self.ea >= other.ea
+
     def __str__(self):
         if self.name is not None:
             label = f'{self.name}:\n'

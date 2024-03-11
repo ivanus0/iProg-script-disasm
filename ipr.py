@@ -2,7 +2,7 @@ import decode
 from stream import STREAM, MemoryNotDefined
 from decode import Decoder
 from listing import Listing
-from ipr_decomp import decompile, decompile_post
+from ipr_decomp import IPRDecomp
 
 
 class DisassemblerIPR:
@@ -188,8 +188,12 @@ class DisassemblerIPR:
         else:
             return ''
 
-    def disasm_command(self, ea):
-        # Дизассемблируем 1 инструкцию. Возвращаем список адресов, с которых можно продолжать дизассемблирование
+    def disasm_command(self, ea: int):
+        """
+        Дизассемблируем 1 инструкцию.
+        :param ea: Адрес инструкции.
+        :return: Возвращаем адреса, с которых можно продолжать
+        """
 
         def set_command(instruction, args):
             self.listing.set_command(ea, self.listing.mem.pos - ea, instruction, args)
@@ -236,7 +240,7 @@ class DisassemblerIPR:
                     t1 = m.read_byte()
                     t2 = m.read_word_be()
                     set_command(mnem[0], [(t1, 'r'), (t2, 'o')])
-                    if mnem[0] in ['JZ', 'JNZ']:
+                    if mnem[0] in ('JZ', 'JNZ'):
                         # JZ, JNZ
                         addresses.add(t2)
                         self.listing.set_label(t2, f'loc_{t2:04X}', False)
@@ -386,11 +390,11 @@ class DisassemblerIPR:
         return addresses
 
     def post_process(self):
-        self.presets['global'] = {'emem': [], 'string': []}
+        d = IPRDecomp(self.listing)
         func_ea = self.listing.get_addresses(set('pc'))
         for f in func_ea:
-            decompile(self.listing, f)
-        decompile_post(self.listing)
+            d.decompile(f)
+        d.post()
 
 
 class IPR:
@@ -617,16 +621,11 @@ class IPR:
                 elif t == b'x':
                     # Picture
                     caption = self.stream.read_str(b'\r')
-                    # Попадались несколько "Kangoo*.ipr" у которых 4 word. Сломанные или старые?
-                    # Должно быть 5 word
                     name_id = self.stream.read_word_be()
                     left = self.stream.read_word_be()
                     top = self.stream.read_word_be()
                     width = self.stream.read_word_be()
                     height = self.stream.read_word_be()
-                    # unknown = self.stream.read_word_be()
-                    # width = 0
-                    # height = 0
                     name = f'picture_{name_id:04X}'
                     f = {
                         'caption': f'"{caption}"',
@@ -886,9 +885,9 @@ class IPR:
             else:
                 print(f'todo2: {lbl:04X}')
 
-        nextblock_offset = self.stream.read_word_be()
-        host_bytescode_offset = self.stream.pos
-        host_bytecode = self.stream.read_stream(nextblock_offset - host_bytescode_offset)
+        next_block_offset = self.stream.read_word_be()
+        host_bytecode_offset = self.stream.pos
+        host_bytecode = self.stream.read_stream(next_block_offset - host_bytecode_offset)
         host_bytecode.mem_offset = 0
         self.b_host_script_start = start
         self.b_host_script_end = self.stream.pos

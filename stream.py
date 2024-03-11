@@ -97,11 +97,11 @@ class STREAM:
     def read_dword_le(self):
         return self.__read('<I', 4)
 
-    def read_str(self, end=b'\0'):
+    def read_str(self, end=b'\0', encoding='cp1251'):
         result = b''
         while True:
             c = self.read_char()
             if c == end:
                 break
             result += c
-        return result.decode(encoding='cp1251', errors='ignore')
+        return result.decode(encoding=encoding, errors='ignore')
