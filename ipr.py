@@ -401,6 +401,7 @@ class IPR:
     def __init__(self, filename):
         self.host_listing = None
         self.device_listing = None
+        self.ui = {}
 
         self.b_menu_start = 0
         self.b_menu_end = 0
@@ -627,6 +628,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     height = self.stream.read_word_be()
                     name = f'picture_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -646,6 +648,7 @@ class IPR:
                     top = self.stream.read_word_be()
                     value = self.stream.read_word_be()
                     name = f'checkbox_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -679,6 +682,7 @@ class IPR:
                         items.append(self.stream.read_str(b'\r'))
                     items = ",".join([f'"{i}"' for i in items])
                     name = f'list_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -705,6 +709,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     value = self.stream.read_word_be()
                     name = f'label_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -724,6 +729,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     value = self.stream.read_dword_be()
                     name = f'digit_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -744,6 +750,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     value = self.stream.read_dword_be()
                     name = f'hexedit_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -765,6 +772,7 @@ class IPR:
                     value = self.stream.read_dword_be()
                     items = ' '.join([f'{self.stream.read_byte():02X}' for _ in range(value)])
                     name = f'hexbytes_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -788,6 +796,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     items = self.stream.read_str(b'\r')
                     name = f'text_{name_id:04X}'
+                    self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
                         'name': name,
@@ -897,6 +906,7 @@ class IPR:
         code.append('')
         code.extend(self.host_listing.disassemble(DisassemblerIPR, {
             'type': 'host',
+            'ui': self.ui,
             'device_labels': []
         }))
 

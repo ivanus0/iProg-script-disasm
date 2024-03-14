@@ -134,6 +134,11 @@ class IPRDecomp:
         self.tmp_str = None
         self.last_r15 = []
 
+    def get_ui(self, ui_id):
+        ui = self.listing.dis.presets.get('ui')
+        control = ui and ui.get(ui_id)
+        return control or f'unknown_{ui_id}'
+
     def tmp_str_clear(self):
         self.tmp_str = None
 
@@ -716,16 +721,32 @@ def _sys_26(d: IPRDecomp, line: Line):
 
 
 @pat
+def _sys_28(d: IPRDecomp, line: Line):
+    """
+    SYS 28 -> picture_idR15 = temp string
+    """
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
+        line2 = line.next()
+        if line2.instruction == 'SYS' and line2.arg(0) == 28:
+            s = d.tmp_str_get()
+            c = d.get_ui(line.arg(1))
+            d.set_comment(line, '')
+            d.set_comment(line2, f'{c} = {s};  // {c} = TMP\n')
+            return line2.next()
+
+
+@pat
 def _sys_15_host(d: IPRDecomp, line: Line):
     """
-    SYS 15 -> label_R15 = temp string
+    SYS 15 -> control_R15 = temp string
     """
     if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'SYS' and line2.arg(0) == 15:
             s = d.tmp_str_get()
+            c = d.get_ui(line.arg(1))
             d.set_comment(line, '')
-            d.set_comment(line2, f'label_{line.arg(1):04X} = {s};  // label_{line.arg(1):04X} = TMP\n')
+            d.set_comment(line2, f'{c} = {s};  // {c} = TMP\n')
             return line2.next()
 
 
@@ -735,32 +756,32 @@ def _sys_15_device(d: IPRDecomp, line: Line):
     SYS 15 -> StreamOut(R15, R14h, R14l)
     """
     # R15
-    # 1:    LDx|MOV    R15, Rx or const or gvar
+    # 1:    LDx|MOV|LDMD    R15, Rx or const or gvar
     #
     # R14h
-    # 2:    MOV        R14, Rx
-    # 22:   RL         R14, 16
+    # 2:    MOV|LDMx        R14, Rx or gvar
+    # 22:   RL              R14, 16
     #   or
-    # 2:    LDD        R14, const<<16
+    # 2:    LDD             R14, const<<16
     #
     # R14l
-    # 3:    OR|ORx     R14 or const
+    # 3:    OR|ORx|ORMx     R14 or const
     #
     # flags (optional)
-    # 32:   ORD       R14, 0x40000000
+    # 32:   ORD             R14, 0x40000000
     #
-    # 4:    SYS       15
-    if line.instruction in ('MOV', 'LDB', 'LDW', 'LDD') and line.arg_str(0) == 'R15':
+    # 4:    SYS             15
+    if line.instruction in ('MOV', 'LDB', 'LDW', 'LDD', 'LDMD') and line.arg_str(0) == 'R15':
         line2 = line.next()
-        if line2.instruction in ('MOV', 'LDD') and line2.arg_str(0) == 'R14':
+        if line2.instruction in ('MOV', 'LDMB', 'LDMW', 'LDMD', 'LDD') and line2.arg_str(0) == 'R14':
             line3 = line2.next()
-            if line2.instruction == 'MOV' and \
+            if line2.instruction != 'LDD' and \
                     line3.instruction == 'RL' and line3.arg_str(0) == 'R14' and line3.arg(1) == 16:
                 line22 = line3
                 line3 = line22.next()
             else:
                 line22 = None
-            if line3.instruction in ('OR', 'ORB', 'ORW', 'ORD') and line3.arg_str(0) == 'R14':
+            if line3.instruction in ('OR', 'ORB', 'ORW', 'ORD', 'ORMB', 'ORMW', 'ORMD') and line3.arg_str(0) == 'R14':
                 line4 = line3.next()
                 if line4.instruction == 'ORD' and line4.arg_str(0) == 'R14' and line4.arg(1) == 0x40000000:
                     line32 = line4
@@ -1261,34 +1282,45 @@ def _sys_23(d: IPRDecomp, line: Line):
 @pat
 def _sys_24(d: IPRDecomp, line: Line):
     """
-    SYS 24 -> label_R14.color = R15
+    SYS 24 -> control_idR14.color = R15
     """
-    if line.instruction == 'LDD' and line.arg_str(0) == 'R15':
+    if line.instruction in ('LDD', 'MOV') and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'LDD' and line2.arg_str(0) == 'R14':
             line3 = line2.next()
             if line3.instruction == 'SYS' and line3.arg(0) == 24:
                 d.set_comment(line, '')
                 d.set_comment(line2, '')
-                d.set_comment(line3, f'label_{line2.arg(1):04X} = 0x{line.arg(1):06x};\n')
+                c = d.get_ui(line2.arg(1))
+                v = line.arg_str(1) if line.arg_type(1) == 'r' else f'0x{line.arg(1):06x}'
+                d.set_comment(line3, f'{c}.color = {v};\n')
                 return line3.next()
 
 
 @pat
 def _sys_25(d: IPRDecomp, line: Line):
     """
-    SYS 25 -> R14.color = R15
+    SYS 25 -> control_R14.color|fontcolor = R15
     """
     if line.instruction in ('LDW', 'LDD') and line.arg_str(0) == 'R14':
         line2 = line.next()
-        if line2.instruction == 'LDD' and line2.arg_str(0) == 'R15':
+        if line2.instruction == 'ORD' and line2.arg_str(0) == 'R14' and line2.arg(1) == 0x80000000:
+            line11 = line2
+            line2 = line2.next()
+        else:
+            line11 = None
+        if line2.instruction in ('LDD', 'MOV') and line2.arg_str(0) == 'R15':
             line3 = line2.next()
             if line3.instruction == 'SYS' and line3.arg(0) == 25:
                 line.set_arg_type(1, 'o')
                 d.set_comment(line, '')
                 d.set_comment(line2, '')
                 ui = d.listing.line(line.arg(1)).name
-                d.set_comment(line3, f'{ui}.color = 0x{line2.arg(1):06x};\n')
+                v = line2.arg_str(1) if line2.arg_type(1) == 'r' else f'0x{line2.arg(1):06x}'
+                attr = 'fontcolor' if line11 else 'color'
+                if line11:
+                    d.set_comment(line11, '')
+                d.set_comment(line3, f'{ui}.{attr} = {v};\n')
                 return line3.next()
 
 
@@ -1392,6 +1424,37 @@ def _sys_40(d: IPRDecomp, line: Line):
 
 
 @pat
+def _sys_42(d: IPRDecomp, line: Line):
+    """
+    SYS 42 -> R15 = toInt(str_<stack_arg>)
+    """
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
+        line2 = line.next()
+        if line2.instruction == 'PUSH' and line2.arg_str(0) == 'R15':
+            line3 = line2.next()
+            if line3.instruction == 'SYS' and line3.arg(0) == 42:
+                line4 = line3.next()
+                if line4.instruction == 'MOV' and line4.arg_str(1) == 'R15':
+                    d.set_comment(line, '')
+                    d.set_comment(line2, '')
+                    d.set_comment(line3, '')
+                    d.set_comment(line4, f'{line4.arg_str(0)} = toInt(str_{line.arg(1)});')
+                    d.add_global_str(line.arg(1))
+                    return line4.next()
+
+    if line.instruction == 'PUSH':
+        line2 = line.next()
+        if line2.instruction == 'SYS' and line2.arg(0) == 42:
+            line3 = line2.next()
+            if line3.instruction == 'MOV' and line3.arg_str(1) == 'R15':
+                d.set_comment(line, '')
+                d.set_comment(line2, '')
+                d.set_comment(line3, f'{line3.arg_str(0)} = toInt(str_{line.arg_str(0)});')
+                # d.add_global_str(line.arg(1))
+                return line3.next()
+
+
+@pat
 def _sys_41(d: IPRDecomp, line: Line):
     """
     SYS 41 -> R15 = isDigit(str_<stack_arg>)
@@ -1406,7 +1469,7 @@ def _sys_41(d: IPRDecomp, line: Line):
                     d.set_comment(line, '')
                     d.set_comment(line2, '')
                     d.set_comment(line3, '')
-                    d.set_comment(line4, f'{line4.arg_str(0)} = isDigit(str_{line.arg(1)});\n')
+                    d.set_comment(line4, f'{line4.arg_str(0)} = isDigit(str_{line.arg(1)});')
                     d.add_global_str(line.arg(1))
                     return line4.next()
 
@@ -1425,9 +1488,9 @@ def _sys_50(d: IPRDecomp, line: Line):
                 if line4.instruction == 'SYS' and line4.arg(0) == 50:
                     line5 = line4.next()
                     if line5.instruction == 'MOV' and line5.arg_str(1) == 'R15':
-                        d.set_comment(line, '')
+                        d.set_comment(line, '// str_<idx>')
                         d.set_comment(line2, '')
-                        d.set_comment(line3, '')
+                        d.set_comment(line3, '// str_<id>')
                         d.set_comment(line4, '')
                         d.set_comment(line5, f'{line5.arg_str(0)} = str_{line2.arg(1)}[{line.arg_str(0)}];')
                         d.add_global_str(line2.arg(1))
