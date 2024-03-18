@@ -46,15 +46,17 @@ def decompile(source_filename):
 def get_args():
     # filename must be the first argument, otherwise is conflicts with -sn <last num>
     parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg',
-                                     usage='%(prog)s filename [-sn серийник [серийник ...]]',
+                                     usage='%(prog)s filename [--bruteforce] | [-sn серийник [серийник ...]]',
                                      add_help=False)
-    parser.add_argument('filename', help='файл скрипта .ipr или файл калькулятора .cal')
-    popular_sn = ', '.join(f'"{sn}"' for sn in Decoder.most_popular_sn)
+    parser.add_argument('filename', help='Файл скрипта .ipr или файл калькулятора .cal')
+    popular_sn = ' '.join(f'{sn}' for sn in Decoder.most_popular_sn)
     parser.add_argument('-sn', nargs='+', type=int, metavar='серийник',
-                        help='использовать эти серийники для раскодирования, '
-                             f'если не указано, пробуем следующие номера: {popular_sn}')
+                        help='Использовать эти серийники для раскодирования. '
+                             f'Если не указано, пробуем следующие номера: {popular_sn}')
     parser.add_argument('--ignore-check',
-                        help='игнорировать проверку расшифровки и попытаться сохранить как есть', action='store_true')
+                        help='Игнорировать проверку расшифровки и попытаться сохранить как есть', action='store_true')
+    parser.add_argument('--bruteforce',
+                        help='Поиск sn перебором (возможны ложные срабатывания)', action='store_true')
 
     if sys.argv[1:]:
         args = parser.parse_args()
@@ -69,8 +71,8 @@ def main():
     print(f'Processing: {args.filename}')
     if args.sn is not None:
         Decoder.touch(args.sn)
-    if args.ignore_check:
-        Decoder.ignore_check = args.ignore_check
+    Decoder.ignore_check = args.ignore_check
+    Decoder.bruteforce = args.bruteforce
     decompile(args.filename)
 
 

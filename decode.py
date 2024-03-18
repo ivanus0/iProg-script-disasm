@@ -3,10 +3,10 @@ import des
 
 
 class Decoder:
-    most_popular_sn = [1, 777, 19]
+    most_popular_sn = [1, 777, 19, 35, 45, 55, 325, 2048, 49339]
     sn_list = None
-    # sn_list = range(65535)
     ignore_check = False
+    bruteforce = False
 
     @classmethod
     def touch(cls, sn_list):
@@ -20,8 +20,14 @@ class Decoder:
         else:
             for sn in cls.most_popular_sn:
                 yield sn
-            # for sn in (sn for sn in range(0xFFFF) if sn not in cls.most_popular_sn):
-            #     yield sn
+
+            if cls.bruteforce:
+                # all possible odd
+                for sn in (sn for sn in range(1, 0x10000, 2) if sn not in cls.most_popular_sn):
+                    yield sn
+                # others
+                for sn in (sn for sn in range(0, 0x10000, 2) if sn not in cls.most_popular_sn):
+                    yield sn
 
     @classmethod
     def decode_ipr_bytecode(cls, data, crc):
