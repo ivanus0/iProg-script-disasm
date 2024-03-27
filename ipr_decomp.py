@@ -233,7 +233,7 @@ class IPRDecomp:
         # string
         s = self.listing.dis.presets['global']['string']
         if s:
-            str_vars = ', '.join(f'str_{i}' for i in range(max(s) + 1))
+            str_vars = ', '.join(f'str{i}' for i in range(max(s) + 1))
             self.listing.glob.append(f'string {str_vars};')
             self.listing.glob.append('')
 
@@ -493,7 +493,7 @@ def _sys_2(d: IPRDecomp, line: Line):
         if line2.instruction == 'SYS' and line2.arg(0) == 2:
             d.set_comment(line, '')
             s = d.tmp_str_get()
-            d.set_comment(line2, f'str_{line.arg(1)} = {s};  // str_{line.arg(1)} = TMP\n')
+            d.set_comment(line2, f'str{line.arg(1)} = {s};  // str{line.arg(1)} = TMP\n')
             d.add_global_str(line.arg(1))
             return line.next()
 
@@ -507,7 +507,7 @@ def _sys_13_host(d: IPRDecomp, line: Line):
     if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'SYS' and line2.arg(0) == 13:
-            s = f'str_{line.arg(1)}'
+            s = f'str{line.arg(1)}'
             d.tmp_str_append(s)
             d.set_comment(line, '')
             d.set_comment(line2, f'// TMP += {s}')
@@ -1068,11 +1068,12 @@ def _sys_20(d: IPRDecomp, line: Line):
                 if line4.instruction == 'SYS' and line4.arg(0) == 20:
                     a1 = line.arg(1)
                     host_label = f'b_{a1:04X}'
-                    d.listing.set_label(a1, host_label, False)
                     line.set_arg_type(1, 'o')
                     dev_label = f'b_{line2.arg(1):04X}'
-                    d.set_device_label(line2.arg(1), dev_label)
                     a3 = line3.arg(1) >> 16
+                    d.listing.set_label(a1, host_label)
+                    d.listing.set_comment(a1, f'{host_label}[{a3}]')
+                    d.set_device_label(line2.arg(1), dev_label, f'{dev_label}[{a3}]')
                     d.set_comment(line, f'/* {host_label} is byte array */')
                     d.set_comment(line2, f'/* device.{dev_label} */')
                     d.set_comment(line3, f'/* ({a3} << 16) */')
@@ -1090,12 +1091,13 @@ def _sys_20(d: IPRDecomp, line: Line):
                     if line5.instruction == 'SYS' and line5.arg(0) == 20:
                         a1 = line.arg(1)
                         host_label = f'b_{a1:04X}'
-                        d.listing.set_label(a1, host_label, False)
                         line.set_arg_type(1, 'o')
                         dev_label = f'b_{line2.arg(1):04X}'
-                        d.set_device_label(line2.arg(1), dev_label)
                         # a3 = line4.arg(1) >> 16
                         a3 = line3.arg_str(0)
+                        d.listing.set_label(a1, host_label, False)
+                        d.listing.set_comment(a1, f'{host_label}[]')
+                        d.set_device_label(line2.arg(1), dev_label, f'{dev_label}[]')
                         d.set_comment(line, f'{a3} is arg2')
                         d.set_comment(line2, '')
                         d.set_comment(line3, '')
@@ -1211,9 +1213,11 @@ def _sys_22(d: IPRDecomp, line: Line):
                 if line4.instruction == 'SYS' and line4.arg(0) == 22:
                     line2.set_arg_type(1, 'o')
                     dev_label = f'b_{line.arg(1):04X}'
-                    d.set_device_label(line.arg(1), dev_label)
                     host_label = f'b_{line2.arg(1):04X}'
                     a3 = line3.arg(1) >> 16
+                    d.listing.set_label(line2.arg(1), host_label)
+                    d.listing.set_comment(line2.arg(1), f'{host_label}[{a3}]')
+                    d.set_device_label(line.arg(1), dev_label, f'{dev_label}[{a3}]')
                     d.set_comment(line, f'/* device.{dev_label} */')
                     d.set_comment(line2, '')
                     d.set_comment(line3, f'/* ({a3} << 16) */')
@@ -1352,7 +1356,7 @@ def _sys_30_31(d: IPRDecomp, line: Line):
                 emem_id = v ^ 0x80000000
                 emem_label = d.get_emem_label(emem_id)
                 d.set_comment(line, f'// {emem_id} | 0x80000000')
-                d.set_comment(line2, f'{"SaveToFile" if line2.arg(0) == 30 else "LoadFromFile"}({emem_label})\n')
+                d.set_comment(line2, f'{"SaveToFile" if line2.arg(0) == 30 else "LoadFromFile"}({emem_label});\n')
                 return line2.next()
 
     # ram_buf
@@ -1369,7 +1373,7 @@ def _sys_30_31(d: IPRDecomp, line: Line):
                 d.listing.set_comment(a1, f'byte {label}[{a3}];')
                 d.set_comment(line, f'// {line.arg_str(1)} is a byte array, {a3} bytes length')
                 d.set_comment(line2, f'// ({a3} << 16)')
-                d.set_comment(line3, f'{"SaveToFile" if line3.arg(0) == 30 else "LoadFromFile"}({line.arg_str(1)})\n')
+                d.set_comment(line3, f'{"SaveToFile" if line3.arg(0) == 30 else "LoadFromFile"}({line.arg_str(1)});\n')
                 return line3.next()
 
 
@@ -1406,7 +1410,7 @@ def _sys_34(d: IPRDecomp, line: Line):
 @pat
 def _sys_40(d: IPRDecomp, line: Line):
     """
-    SYS 40 -> R15 = len(str_<stack_arg>)
+    SYS 40 -> R15 = len(str<stack_arg>)
     """
     if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
@@ -1418,7 +1422,7 @@ def _sys_40(d: IPRDecomp, line: Line):
                     d.set_comment(line, '')
                     d.set_comment(line2, '')
                     d.set_comment(line3, '')
-                    d.set_comment(line4, f'{line4.arg_str(0)} = len(str_{line.arg(1)});\n')
+                    d.set_comment(line4, f'{line4.arg_str(0)} = len(str{line.arg(1)});\n')
                     d.add_global_str(line.arg(1))
                     return line4.next()
 
@@ -1426,7 +1430,7 @@ def _sys_40(d: IPRDecomp, line: Line):
 @pat
 def _sys_42(d: IPRDecomp, line: Line):
     """
-    SYS 42 -> R15 = toInt(str_<stack_arg>)
+    SYS 42 -> R15 = toInt(str<stack_arg>)
     """
     if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
@@ -1438,7 +1442,7 @@ def _sys_42(d: IPRDecomp, line: Line):
                     d.set_comment(line, '')
                     d.set_comment(line2, '')
                     d.set_comment(line3, '')
-                    d.set_comment(line4, f'{line4.arg_str(0)} = toInt(str_{line.arg(1)});')
+                    d.set_comment(line4, f'{line4.arg_str(0)} = toInt(str{line.arg(1)});')
                     d.add_global_str(line.arg(1))
                     return line4.next()
 
@@ -1449,7 +1453,7 @@ def _sys_42(d: IPRDecomp, line: Line):
             if line3.instruction == 'MOV' and line3.arg_str(1) == 'R15':
                 d.set_comment(line, '')
                 d.set_comment(line2, '')
-                d.set_comment(line3, f'{line3.arg_str(0)} = toInt(str_{line.arg_str(0)});')
+                d.set_comment(line3, f'{line3.arg_str(0)} = toInt(str{line.arg_str(0)});')
                 # d.add_global_str(line.arg(1))
                 return line3.next()
 
@@ -1457,7 +1461,7 @@ def _sys_42(d: IPRDecomp, line: Line):
 @pat
 def _sys_41(d: IPRDecomp, line: Line):
     """
-    SYS 41 -> R15 = isDigit(str_<stack_arg>)
+    SYS 41 -> R15 = isDigit(str<stack_arg>)
     """
     if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
@@ -1469,7 +1473,7 @@ def _sys_41(d: IPRDecomp, line: Line):
                     d.set_comment(line, '')
                     d.set_comment(line2, '')
                     d.set_comment(line3, '')
-                    d.set_comment(line4, f'{line4.arg_str(0)} = isDigit(str_{line.arg(1)});')
+                    d.set_comment(line4, f'{line4.arg_str(0)} = isDigit(str{line.arg(1)});')
                     d.add_global_str(line.arg(1))
                     return line4.next()
 
@@ -1477,7 +1481,7 @@ def _sys_41(d: IPRDecomp, line: Line):
 @pat
 def _sys_50(d: IPRDecomp, line: Line):
     """
-    SYS 50 -> R15 = str_<stack_arg0>[<stack_arg1>]
+    SYS 50 -> R15 = str<stack_arg0>[<stack_arg1>]
     """
     if line.instruction == 'PUSH':
         line2 = line.next()
@@ -1488,11 +1492,11 @@ def _sys_50(d: IPRDecomp, line: Line):
                 if line4.instruction == 'SYS' and line4.arg(0) == 50:
                     line5 = line4.next()
                     if line5.instruction == 'MOV' and line5.arg_str(1) == 'R15':
-                        d.set_comment(line, '// str_<idx>')
+                        d.set_comment(line, '// str<idx>')
                         d.set_comment(line2, '')
-                        d.set_comment(line3, '// str_<id>')
+                        d.set_comment(line3, '// str<id>')
                         d.set_comment(line4, '')
-                        d.set_comment(line5, f'{line5.arg_str(0)} = str_{line2.arg(1)}[{line.arg_str(0)}];')
+                        d.set_comment(line5, f'{line5.arg_str(0)} = str{line2.arg(1)}[{line.arg_str(0)}];')
                         d.add_global_str(line2.arg(1))
                         return line5.next()
 
@@ -1651,3 +1655,16 @@ def _array(d: IPRDecomp, line: Line):
         idx = line.arg_str(2)
         d.set_comment(line, f'{a} = {v}[{idx}];\n')
         return line.next()
+
+@pat
+def _(d: IPRDecomp, line: Line):
+    if line.instruction == 'ADDW':
+        line2 = line.next()
+        if line2.instruction == 'LDIB' and line2.arg(1) == line.arg(0):
+            a0 = line.arg(1)
+            label = f'b_{a0:04X}'  # byte array
+            d.listing.set_label(a0, label, False)
+            line.set_arg_type(1, 'o')
+
+            d.set_comment(line, '')
+            d.set_comment(line2, f'{line2.arg_str(0)} = {line.arg_str(1)}[{line.arg_str(0)}]')
