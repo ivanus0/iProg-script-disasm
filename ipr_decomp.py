@@ -226,6 +226,7 @@ class IPRDecomp:
         # emem
         emem = self.listing.dis.presets['global']['emem']
         if emem:
+            emem = sorted(emem, key=lambda b: b[1])
             emem_vars = ', '.join(f'{e}={i}' for e, i in emem)
             self.listing.glob.append(f'emem {emem_vars};')
             self.listing.glob.append('')
@@ -265,9 +266,9 @@ def _for1(d: IPRDecomp, line: Line):
     """
     for((const)_init_;(const)_cond_;_incr_) {} instruction
     """
-    if line.instruction in ('LDB', 'LDW', 'LDD') and line.arg_type(0) == 'r':
+    if line.instruction in ('LDB', 'LDW', 'LDD'):
         line2 = line.next()
-        if line2.instruction in ('LDB', 'LDW', 'LDD') and line2.arg_type(0) == 'r':
+        if line2.instruction in ('LDB', 'LDW', 'LDD'):
             line3 = line2.next()
             if line3.instruction[:4] == 'CMPJ' and line3.arg(0) == line.arg(0) and line3.arg(1) == line2.arg(0):
                 ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(
@@ -308,7 +309,7 @@ def _for2(d: IPRDecomp, line: Line):
     """
     for((const)_init_;(var)_cond_;_incr_) {} instruction
     """
-    if line.instruction in ('LDB', 'LDW', 'LDD') and line.arg_type(0) == 'r':
+    if line.instruction in ('LDB', 'LDW', 'LDD'):
         line2 = line.next()
         if line2.instruction[:4] == 'CMPJ' and line2.arg(0) == line.arg(0):
             ncond = {'E': '!=', 'NE': '=', 'GE': '<', 'LE': '>', 'L': '>=', 'G': '<='}.get(line2.instruction[4:], '??')
@@ -823,9 +824,9 @@ def _sys_16(d: IPRDecomp, line: Line):
     """
     if line.instruction in ('MOV', 'LDD') and line.arg_str(0) == 'R15':
         line2 = line.next()
-        if line2.instruction == 'LDW' and line2.arg_str(0) == 'R14' and line2.arg_type(1) == 'd':
+        if line2.instruction == 'LDW' and line2.arg_str(0) == 'R14':
             line3 = line2.next()
-            if line3.instruction == 'ORD' and line3.arg_str(0) == 'R14' and line3.arg_type(1) == 'd':
+            if line3.instruction == 'ORD' and line3.arg_str(0) == 'R14':
                 line4 = line3.next()
                 if line4.instruction == 'SYS' and line4.arg(0) == 16:
                     w = line3.arg(1) >> 16
@@ -934,7 +935,7 @@ def _sys_17(d: IPRDecomp, line: Line):
     """
     SYS 17 -> R15 = device.prc_id_R15low_byte(R15hi_byte args)
     """
-    if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'SYS' and line2.arg(0) == 17:
             proc_id = line.arg(1)
@@ -949,9 +950,9 @@ def _sys_17(d: IPRDecomp, line: Line):
                 d.set_comment(line2, f'R15 = device.prc_id{proc_id}();\n')
                 return line2.next()
 
-    if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
-        if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
+        if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15':
             line3 = line2.next()
             if line3.instruction == 'SYS' and line3.arg(0) == 17:
                 a = line2.arg(1)
@@ -976,16 +977,16 @@ def _sys_18(d: IPRDecomp, line: Line):
     """
     SYS 18 -> device.prc_id_R15low_byte(R15hi_byte args)
     """
-    if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'SYS' and line2.arg(0) == 18:
             d.set_comment(line, '')
             d.set_comment(line2, f'device.prc_id{line.arg(1)}();\n')
             return line2.next()
 
-    if line.instruction == 'LDB' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDB' and line.arg_str(0) == 'R15':
         line2 = line.next()
-        if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
+        if line2.instruction == 'ORW' and line2.arg_str(0) == 'R15':
             line3 = line2.next()
             if line3.instruction == 'SYS' and line3.arg(0) == 18:
                 a = line2.arg(1)
@@ -1002,7 +1003,7 @@ def _sys_19(d: IPRDecomp, line: Line):
     """
     SYS 19 -> R15 = (byte|word|dword)device.R15l
     """
-    if line.instruction == 'LDD' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDD' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'SYS' and line2.arg(0) == 19:
             # SYS 19. R15hi - len bytes(1,2 or 4), R15lo = offset to device variable
@@ -1018,7 +1019,7 @@ def _sys_19(d: IPRDecomp, line: Line):
 
     if line.instruction == 'MOV' and line.arg_str(0) == 'R15':
         line2 = line.next()
-        if line2.instruction == 'ADDD' and line2.arg_str(0) == 'R15' and line2.arg_type(1) == 'd':
+        if line2.instruction == 'ADDD' and line2.arg_str(0) == 'R15':
             line3 = line2.next()
             if line3.instruction == 'SYS' and line3.arg(0) == 19:
                 # SYS 19. R15hi - len bytes(1,2 or 4), R15lo = offset to device variable
@@ -1173,9 +1174,13 @@ def _sys_21(d: IPRDecomp, line: Line):
                 d.set_comment(line1, f'// {idx}')
             else:
                 if line1:
-                    tmp = line1.arg(1)
-                    flags = tmp & 0xFF000000
-                    idx = tmp & 0xFFFFFF
+                    if line1.arg_type(1) == 'r':
+                        idx = line1.arg_str(1)
+                        flags = 0
+                    else:
+                        tmp = line1.arg(1)
+                        flags = tmp & 0xFF000000
+                        idx = tmp & 0xFFFFFF
                     d.set_comment(line1, f'// emem index: {idx}')
                 else:
                     flags = 0
@@ -1190,7 +1195,7 @@ def _sys_21(d: IPRDecomp, line: Line):
             if line32:
                 d.set_comment(line32, '')
                 a3 = line3.arg_str(0)
-                d.set_comment(line3, f'length: {a3}')
+                d.set_comment(line3, f'// length: {a3}')
             else:
                 a3 = line3.arg(1) >> 16
                 d.set_comment(line3, f'// length: {a3} << 16')
@@ -1360,7 +1365,7 @@ def _sys_30_31(d: IPRDecomp, line: Line):
                 return line2.next()
 
     # ram_buf
-    if line.instruction == 'LDW' and line.arg_str(0) == 'R15' and line.arg_type(1) == 'd':
+    if line.instruction == 'LDW' and line.arg_str(0) == 'R15':
         line2 = line.next()
         if line2.instruction == 'ORD' and line2.arg_str(0) == 'R15':
             line3 = line2.next()
@@ -1655,6 +1660,7 @@ def _array(d: IPRDecomp, line: Line):
         idx = line.arg_str(2)
         d.set_comment(line, f'{a} = {v}[{idx}];\n')
         return line.next()
+
 
 @pat
 def _(d: IPRDecomp, line: Line):
