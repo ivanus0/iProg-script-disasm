@@ -1,0 +1,2916 @@
+Menu
+    Read,Read,0,F1
+    -
+    Write,Write,1,F2
+    Write Mismatches,Write_Mismatches,2,F3
+    -
+    Verify,Verify,3,F4
+    Erase Chip,Erase_Chip,4,F5
+EndMenu
+
+
+Editor
+{
+    (Caption="CODE FLASH";size=262144;mode=8;bytes=16)
+    (Caption="DATA FLASH";size=65536;mode=8;bytes=16)
+}
+
+Window(caption=""; width=0; height=150; align=h)
+{
+    Label(caption="$%size=13%fname=Tahoma%color=$60FF60%fcolor=$000000%RENESAS v850 Family"; name=label0; left=10; top=10; width=500; value=0)
+    Label(caption="$%size=9%fname=Tahoma%color=$60FF60%fcolor=$000000%uPD70F3628  //  Flash: 256 KByte + Data Flash: 32 KByte"; name=label1; left=10; top=33; width=500; value=0)
+    Group(caption="Settings"; left=10; top=62; width=225; height=75)
+    {
+        List(caption="Resonator: "; name=resonator; left=130; top=15; width=80; value=1; items="2 MHz","4 MHz","5 MHz","6 MHz","8 MHz","10 MHz","12 MHz","16 MHz","20 MHz"; proc=onchange)
+        List(caption="Voltage: "; name=voltage; left=130; top=45; width=65; value=0; items="5V","3.3V"; proc=onchange)
+    }
+    Group(caption="Options"; left=245; top=62; width=265; height=75)
+    {
+        List(caption="Operate On: "; name=mode; left=130; top=15; width=120; value=1; items="Full Memory","Code Flash Only","Data Flash Only"; proc=onchange)
+        Group(caption="Write"; left=130; top=40; width=120; height=30)
+        {
+            Checkbox(caption="+ Verify"; name=doverify; left=60; top=8; value=1)
+        }
+    }
+}
+
+
+$HOST
+
+#define CODE_FLASH_SIZE		(256 * 1024)
+#define DATA_FLASH_SIZE		 (64 * 1024)
+#define BUF_SIZE			1024
+
+#define DEBUG				0
+
+
+// https://www.renesas.com/us/en/document/apn/v850esjx3-l-microcontrollers-flash-memory-programming-programmer-application-note
+
+#define V850_CMD_CHIP_ERASE		0x20
+#define V850_CMD_BLOCK_ERASE	0x22
+#define V850_CMD_RESET			0x00
+#define V850_CMD_OSCFREQSET		0x90
+#define V850_CMD_BAUDRATESET	0x9A
+#define V850_CMD_SIGNATURE		0xC0
+#define V850_CMD_BLANK_CHECK	0x32
+#define V850_CMD_READ			0x50
+#define V850_CMD_PROGRAMMING	0x40
+
+
+#define V850_SOH				0x01
+#define V850_STX				0x02
+#define V850_ETX				0x03
+#define V850_ETB				0x17
+
+#define V850_ST_CMD_ERR			0x04
+#define V850_ST_PARAM_ERR		0x05
+#define V850_ST_ACK				0x06
+#define V850_ST_CHCKSUM_ERR		0x07
+#define V850_ST_VERIFY_ERR		0x0F
+#define V850_ST_PROTECT_ERR		0x10
+#define V850_ST_NACK			0x15
+
+
+
+
+
+emem buf_code=0, buf_data=1, sel_code=2, sel_data=3;
+
+string str0, str1, str2, dbg;
+
+byte buf[BUF_SIZE];
+byte pad;
+byte b_5203;
+dword d_5204;
+dword mismatches_bytes;
+dword mismatches_blocks;
+dword d_5210;
+
+proc prc_0000() {
+	if (mismatches_blocks = 0) {
+		print("\n    NO MISMATCHES FOUND.");
+		return;
+	}
+	print("\n    MISMATCHES FOUND!");
+	print("\n   	" + #i.mismatches_bytes + " BYTE(S)");
+	print("\n   	" + "IN " + #i.mismatches_blocks + " BLOCK(S)");
+}
+
+
+proc dbgPrefix() {
+	var v0;
+
+	dbg = "\nDBG:";
+	v0 = pad;
+	while (v0) {
+		dbg = dbg + "	";
+		v0--;
+	}
+}
+
+proc prc_0090(a0, a1, a2, a3) {
+	var v4;
+
+	a0 &= 0x7F;
+	a1 &= 0x7F;
+	a2 &= 0x7F;
+	a3 &= 0x7F;
+	v4 = (a3 << 21) | (a2 << 14) | (a1 << 7) | a0;
+	return(v4);
+}
+
+proc prc_00BD(a0) {
+	var v1;
+
+	v1 = a0 + 3;
+	if (v1 >= BUF_SIZE) {
+		return(0xFFFFFFFF);
+	}
+	v1 = prc_0090(buf[a0], buf[a0+1], buf[a0+2], buf[a0+3]);
+	return(v1);
+}
+
+proc hasBlockMM(param) {
+	var v1, v2;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> hasBlockMM().param = 0x" + #h3.param);
+	}
+
+	for(v2 = param + 4096; param != v2; param++) {
+		if (sel_code[param] != 0) {
+			if (DEBUG != 0) {
+				print(dbg + "yes");
+				print(dbg + "<- hasBlockMM()");
+				pad--;
+			}
+			return(1);
+		}
+	}
+
+	if (DEBUG != 0) {
+		print(dbg + "no");
+		print(dbg + "<- hasBlockMM()");
+		pad--;
+	}
+	return(0);
+}
+
+
+proc blockResetMM(param) {
+	var v1;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> blockResetMM().param = 0x" + #h3.param);
+	}
+
+	for(v1 = param + 4096; param < v1; param++) {
+		sel_code[param] = 0;
+	}
+
+	if (DEBUG != 0) {
+		print(dbg + "<- blockResetMM()");
+		pad--;
+	}
+}
+
+
+proc compareBytes(param, a1) {
+	var v2, v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> compareBytes().param = 0x" + #h3.param);
+	}
+
+	v4 = param + a1;
+	v5 = 0;
+	v3 = 0;
+	v2 = param;
+	while (v2 != v4) {
+		sel_code[v2] = 0;
+		if (buf[v3] != buf_code[v2]) {
+			sel_code[v2] = 2;
+			v5++;
+		}
+		v3++;
+		v2++;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "<- compareBytes()");
+		pad--;
+	}
+
+	return(v5);
+}
+
+
+proc prc_02D1() {
+
+	if (mode = 0) {
+		return(3);
+	}
+
+	if (mode = 1) {
+		return(1);
+	}
+
+	return(2);
+}
+
+
+proc hasDataBlockMM(mm_offset) {
+	var v1, v2;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> hasDataBlockMM()");
+	}
+
+	for (v2 = mm_offset + 4096; mm_offset < v2; mm_offset++) {
+		if (sel_data[mm_offset] != 0) {
+			if (DEBUG != 0) {
+				print(dbg + "mm offset =  " + #h3.mm_offset);
+				print(dbg + "<- hasDataBlockMM()");
+				pad--;
+			}
+			return(1);
+		}
+	}
+
+	if (DEBUG != 0) {
+		print(dbg + "<- hasDataBlockMM()");
+		pad--;
+	}
+
+	return(0);
+}
+
+
+proc dataBlockResetMM(a0) {
+	var v1;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> dataBlockResetMM()");
+	}
+
+	for (v1 = a0 + 4096; a0 < v1; a0++) {
+		sel_data[a0] = 0;
+	}
+
+	if (DEBUG != 0) {
+		print(dbg + "<- dataBlockResetMM()");
+		pad--;
+	}
+}
+
+
+proc prc_0411(a0) {
+	var v1, v2, v3, v4;
+
+	v3 = a0 + BUF_SIZE;
+	v4 = 0;
+	v2 = 0;
+	v1 = a0;
+	while (v1 != v3) {
+		sel_data[v1] = 0;
+		if (buf[v2] != buf_data[v1]) {
+			sel_data[v1] = 2;
+			v4++;
+		}
+		v2++;
+		v1++;
+	}
+	return(v4);
+}
+
+
+proc prc_0454(code) {
+	var v1;
+
+	v1 = 0;
+
+	str1 = str1 + "STATUS ERROR";
+
+	if (code = V850_ST_CMD_ERR) {
+		str1 = str1 + " / INVALID COMMAND";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / INVALID COMMAND");
+		}
+		v1 = 1;
+	}
+
+	if (code = V850_ST_PARAM_ERR) {
+		str1 = str1 + " / INVALID PARAMETER";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / INVALID PARAMETER");
+		}
+		v1 = 1;
+	}
+
+	if (code = V850_ST_CHCKSUM_ERR) {
+		str1 = str1 + " / BAD CHECKSUM";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / BAD CHECKSUM");
+		}
+		v1 = 1;
+	}
+
+	if (code = V850_ST_PROTECT_ERR) {
+		str1 = str1 + " / PROTECTED";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / PROTECTED");
+		}
+		v1 = 1;
+	}
+
+	if (code = V850_ST_NACK) {
+		str1 = str1 + " / NACK";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / NACK");
+		}
+		v1 = 1;
+	}
+
+	if (code = 0x18) {
+		str1 = str1 + " / FLMD";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / FLMD");
+		}
+		v1 = 1;
+	}
+
+	if (v1 = 0) {
+		str1 = str1 + " / UNKNOWN";
+		if (DEBUG != 0) {
+			print(dbg + "STATUS ERROR / UNKNOWN");
+		}
+	}
+
+	str1 = str1 + "(CODE: ";
+	str1 = str1 + #h1.code;
+	str1 = str1 + ")";
+
+	if (DEBUG != 0) {
+		print(dbg + "CODE: 0x" + #h1.code);
+	}
+}
+
+
+proc prc_0623(a0) {
+	var v1;
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+	}
+
+	str1 = str1 + "FRAME ERROR / ";
+
+	if (a0 = 1) {
+		str1 = str1 + "NO ANSWER";
+		if (DEBUG != 0) {
+			print(dbg + "FRAME ERROR / NO ANSWER");
+		}
+		return;
+	}
+
+	if (a0 = 2) {
+		str1 = str1 + "NO BYTES";
+		if (DEBUG != 0) {
+			print(dbg + "FRAME ERROR / NO BYTES");
+			v1 = device.uart_bytes_received;
+			print(dbg + "uart bytes received = " + #i.v1);
+		}
+		return;
+	}
+
+	if (a0 = 3) {
+		str1 = str1 + "BAD HEADER";
+		if (DEBUG != 0) {
+			print(dbg + "FRAME ERROR / BAD HEADER");
+		}
+		return;
+	}
+
+	if (a0 = 4) {
+		str1 = str1 + "BAD CRC";
+		if (DEBUG != 0) {
+			print(dbg + "FRAME ERROR / BAD CRC");
+		}
+		return;
+	}
+
+	if (a0 = 5) {
+		str1 = str1 + "BAD FOOTER";
+		if (DEBUG != 0) {
+			print(dbg + "FRAME ERROR / BAD FOOTER");
+		}
+		return;
+	}
+
+	str1 = str1 + "UNKNOWN";
+	if (DEBUG != 0) {
+		print(dbg + "FRAME ERROR / UNKNOWN"); 
+	}
+
+	if (DEBUG != 0) {
+		pad--;
+	}
+}
+
+
+proc decodeError(a0) {
+	var v1, v2, v3, v4;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> decodeError");
+	}
+
+	v3 = device.errorCode;
+
+	if (DEBUG != 0) {
+		print(dbg + "errorCode = 0x" + #h2.v3);
+	}
+
+	if (v3 & 0x4000) {
+		if (v3 & 0xFF = 0x10) {
+			label0 = "%color=$FF6060%";
+			label1 = "%color=$FF6060%";
+			str1 = "SECURITY ERROR! OPERATION DISABLED!";
+			if (DEBUG != 0) {
+				dbgPrefix();
+				print(dbg + "OPERATION DISABLED!");
+			}
+			return;
+		}
+	}
+
+	label0 = "%color=$6060FF%";
+	label1 = "%color=$6060FF%";
+
+	if (a0 = 1) {
+		v4 = device.stage;
+		str1 = "STAGE = " + #i.v4 + ", ";
+	}
+
+	if (v3 & 0x8000) {
+		prc_0623(v3 & 0xFF);
+	}
+
+	if (v3 & 0x4000) {
+		prc_0454(v3 & 0xFF);
+	}
+
+	if (v3 & 0x2000) {
+		prc_0454(v3 & 0xFF);
+	}
+
+	if (v3 & 0x1000) {
+		str1 = str1 + "INCORRECT NUM BYTES RECEIVED";
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- decodeError");
+		pad--;
+	}
+}
+
+
+proc checkProtectionErr() {
+	var v0;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> checkProtectionErr");
+	}
+
+	v0 = device.errorCode;
+
+	if (DEBUG != 0) {
+		print(dbg + "errorCode = 0x" + #h2.v0);
+	}
+
+	if (v0 & 0x4000) {
+		if (v0 & 0xFF = 0x10) {
+			label0 = "%color=$FF6060%";
+			label1 = "%color=$FF6060%";
+
+			if (DEBUG != 0) {
+				dbgPrefix();
+				print(dbg + "OPERATION PROTECTED!");
+			}
+
+			if (DEBUG != 0) {
+				dbgPrefix();
+				print(dbg + "OUT -> checkProtectionErr");
+				pad++;
+			}
+
+			return(1);
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT -> checkProtectionErr");
+		pad++;
+	}
+
+	return(0);
+}
+
+
+proc initFP(a0) {
+	var v1, D01, D02, D04, v5, v6, v7;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> initFP()");
+	}
+
+	if (b_5203 != 0) {
+		device.prc_id0();
+		device.prc_id1(0);
+		Delay(50);
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "REINITIALIZATION!");
+		}
+		b_5203 = 0;
+	}
+
+	d_5210 = 0;
+	if (voltage = 0) {
+		device.prc_id1(3);
+	} else {
+		device.prc_id1(1);
+	}
+	Delay(50);
+	if (a0 = 0) {
+		print("\n");
+		print("\n  Initializing...");
+		label0 = "Initializing...";
+		label1 = "";
+	}
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "in -> dvc.startFlashProg()");
+	}
+
+	device.busy = 1;
+	device.startFlashProg();
+
+	while (device.busy != 0);
+
+	v5 = device.fail;
+	if (v5) {
+		print("\n  			 ...Failed!");
+
+		if (a0) {
+			print("\n ! INITIALIZING !");
+		}
+		print("\n ! START FLASH PROGRAMMING !");
+		print("\n");
+		str0 = "START FLASH PROGRAMMING";
+		str1 = ""; 
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+
+		return(0);
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			v1 = device.last_byte;
+			print(dbg + "last byte = " + #h1.v1);
+		}
+		return(0);
+	}
+
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v1 = device.frame_wait;
+		print(dbg + "frame_wait = " + #i.v1);
+		v1 = device.max_byte_wait;
+		print(dbg + "max_byte_wait = " + #i.v1);
+		print(dbg + "out <- dvc.startFlashProg()");
+		pad--;
+	}
+
+	D01 = 0; D02 = 0; D04 = 1;
+	if (resonator = 0) {
+		D01 = 2; D02 = 0; D04 = 4;
+	}
+	if (resonator = 1) {
+		D01 = 4; D02 = 0; D04 = 4;
+	}
+	if (resonator = 2) {
+		D01 = 5; D02 = 0; D04 = 4;
+	}
+	if (resonator = 3) {
+		D01 = 6; D02 = 0; D04 = 4;
+	}
+	if (resonator = 4) {
+		D01 = 8; D02 = 0; D04 = 4;
+	}
+	if (resonator = 5) {
+		D01 = 1; D02 = 0; D04 = 5;
+	}
+	if (resonator = 6) {
+		D01 = 1; D02 = 2; D04 = 5;
+	}
+	if (resonator = 7) {
+		D01 = 1; D02 = 6; D04 = 5;
+	}
+	if (resonator = 8) {
+		D01 = 2; D02 = 0; D04 = 5;
+	}
+	if (resonator = 9) {
+		D01 = 2; D02 = 5; D04 = 5;
+	}
+	if (resonator = 10) {
+		D01 = 3; D02 = 2; D04 = 5;
+	}
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "in -> dvc.setOscFreq()");
+	}
+
+	device.busy = 1;
+	device.setOscFreq(D01, D02, 0, D04);
+
+	while (device.busy != 0);
+
+	v5 = device.fail;
+	if (v5) {
+		print("\n  			 ...Failed!");
+
+		if (a0) {
+			print("\n ! INITIALIZING !");
+		}
+
+		print("\n ! SET OSCILLATING FREQUENCY !");
+		print("\n");
+		str0 = "\n ! SET OSCILLATING FREQUENCY !";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v1 = device.frame_wait;
+		print(dbg + "frame_wait = " + #i.v1);
+		v1 = device.max_byte_wait;
+		print(dbg + "max_byte_wait = " + #i.v1);
+		print(dbg + "out <- dvc.setOscFreq()");
+		pad--;
+	}
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "in -> dvc.setBaudRate()");
+	}
+
+	device.setBaudRate();
+
+	while (device.busy != 0);
+
+	v5 = device.fail;
+	if (v5) {
+		print("\n  			 ...Failed!");
+
+		if (a0) {
+			print("\n ! INITIALIZING !");
+		}
+		print("\n ! BAUD RATE SETTING !");
+		print("\n");
+		str0 = "BAUD RATE SETTING";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v1 = device.frame_wait;
+		print(dbg + "frame_wait = " + #i.v1);
+		v1 = device.max_byte_wait;
+		print(dbg + "max_byte_wait = " + #i.v1);
+		print(dbg + "out <- dvc.setBaudRate()");
+		pad--;
+	}
+
+	if (a0 = 0) {
+		print("\n  			...Success!");
+	}
+
+	b_5203 = 1;
+
+
+	if (DEBUG != 0) {
+		pad--;
+		dbgPrefix();
+		print(dbg + "<- initFP()");
+	}
+	return(1);
+}
+
+
+proc deinitFP(a0) {
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "-> deinitFP()");
+		pad++;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "fl prog stop");
+	}
+
+	device.prc_id0();
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "power off");
+	}
+
+	device.prc_id1(0);
+	print("\n ------------------------------------");
+
+	if (a0) {
+		print("\n			Result: Done.");
+	} else {
+		print("\n			Result: FAILED!");
+	}
+
+	print("\n");
+	b_5203 = 0;
+
+	if (DEBUG != 0) {
+		pad--;
+		dbgPrefix();
+		print(dbg + "<- deinitFP()");
+	}
+}
+
+
+proc prc_1088() {
+	var v0, v1, v2;
+
+	device.busy = 1;
+	device.BlankCheck();
+
+	while (device.busy != 0);
+
+	v1 = device.fail;
+	if (v1) {
+
+		if (DEBUG != 0) {
+			pad++;
+			dbgPrefix();
+			v0 = device.not_blank_code;
+			print(dbg + "Not Blank Code = " + #h1.v0);
+		}
+
+		v2 = device.address;
+		str0 = "BLANK CHECKING ADDRESS " + #h3.v2 + "h";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+	return(1);
+}
+
+
+proc prc_115D() {
+	var v0, v1, v2;
+
+	device.busy = 1;
+	device.BlockErase();
+
+	while (device.busy != 0);
+
+	v1 = device.fail;
+	if (v1) {
+		v2 = device.address;
+		str0 = "ERASING ADDRESS " + #h3.v2 + "h";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+	return(1);
+}
+
+
+proc prc_11FB() {
+	var v0;
+
+	device.busy = 1;
+	device.ChipErase();
+
+	while(device.busy != 0);
+
+	v0 = device.fail;
+	if (v0) {
+		str0 = "CHIP ERASING";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+	return(1);
+}
+
+
+proc getSignature() {
+	var v0;
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "-> getSignature()");
+		pad++;
+	}
+
+	device.busy = 1;
+	device.getSignature();
+
+	while (device.busy != 0);
+
+	v0 = device.fail;
+	if (v0) {
+		str0 = "GETTING CHIP INFO";
+		str1 = "";
+		decodeError(0);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+
+	if (DEBUG != 0) {
+		pad--;
+		dbgPrefix();
+		print(dbg + "<- getSignature()");
+	}
+	return(1);
+}
+
+
+proc getKnowDataFlashAdr(arrayOffset, a1) {
+	var v2, v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> getKnowDataFlashAdr()");
+		print(dbg + "arrayOffset = " + #i.arrayOffset);
+	}
+
+	if (a1) {
+		print("\n   Address Receiving...");
+		label0 = "Data Flash Address receiving...";
+		label1 = "Please, wait!";
+	}
+
+	v2 = getSignature();
+	if (v2 = 0) {
+		if (a1 = 0) {
+			print("\n  			 ...Failed!");
+			print("\n ! DATA FLASH ADDRESS RECEIVING !");
+		}
+		return(0);
+	}
+
+	if (a1) {
+		print("\n  		      ...Completed!");
+	}
+
+	v2 = device.num_bytes_to_copy;
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "coping signature info");
+		print(dbg + "before memcopy. num bytes to copy = " + #i.v2);
+	}
+
+	v5 = v2;
+	memcopy(buf = device.buf, v2);
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "after memcopy");
+		print(dbg + "bytes:");
+		for (v3 = 0; v3 < v5; v3++) {
+			v4 = buf[v3];
+			print(" " + #h1.v4);
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v2 = prc_00BD(13);	// DFE
+		print(dbg + "data flash end adr: 0x" + #h3.v2);
+	}
+
+	d_5210 = prc_00BD(arrayOffset);
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "df offset = 0x" + #h4.d_5210);
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- getKnowDataFlashAdr() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc prc_1511() {
+	var v0, v1, v2;
+
+	device.busy = 1;
+	device.Read();
+
+	while (device.busy != 0);
+
+	v1 = device.fail;
+	if (v1) {
+		v2 = device.address;
+		str0 = "READING ADDRESS " + #h3.v2 + "h";
+		str1 = "";
+		decodeError(1);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+	return(1);
+}
+
+
+proc readBlock(bckAdr, nmBytes) {	// !!!!
+	var v2, v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> readBlock()");
+		print(dbg + "bckAdr = 0x" + #h3.bckAdr);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+
+	device.prc_id10(bckAdr, nmBytes);
+	for (v5 = 0; v5 < nmBytes; v5 += v4) {
+		v2 = prc_1511();
+		if (v2 = 0) {
+			return(0);
+		}
+
+		v2 = device.num_bytes_to_copy;
+		v4 = v2;
+		memcopy(buf_code[bckAdr + v5] = device.buf, v2);
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "bytes read = " + #i.v4);
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<- readBlock() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc prc_1695() {
+	var v0, v1, v2;
+
+	PBMAX = CODE_FLASH_SIZE;
+	PBPOS = 0;
+	v1 = 0;
+	while (v1 < CODE_FLASH_SIZE) {
+		v0 = readBlock(v1, 0x1000);
+		if (v0 = 0) {
+			return(0);
+		}
+		v1 += 0x1000;
+		PBPOS = v1;
+	}
+}
+
+
+proc prc_16DA(bckAdr, nmBytes) {	// !!!! readBlock 2
+	var v2, v3, v4, v5, v6;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> readBlock()");
+		print(dbg + "bckAdr = 0x" + #h3.bckAdr);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+
+	device.prc_id10(bckAdr, nmBytes);
+
+	v6 = mismatches_bytes;
+	for (v5 = 0; v5 < nmBytes; v5 += v4) {
+		v2 = prc_1511();
+		if (v2 = 0) {
+			return(0);
+		}
+		v2 = device.num_bytes_to_copy;
+		v4 = v2;
+		memcopy(buf = device.buf, v2);
+		v2 = compareBytes(bckAdr + v5, v4);
+		mismatches_bytes = mismatches_bytes + v2;
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "bytes read = " + #i.v4);
+		}
+	}
+
+	if (v6 != mismatches_bytes) {
+		mismatches_blocks++;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<- readBlock() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc prc_17F0() {
+	var v0, v1, v2;
+
+	PBMAX = CODE_FLASH_SIZE;
+	PBPOS = 0;
+	mismatches_bytes = 0;
+	mismatches_blocks = 0;
+	v1 = 0;
+	while (v1 < CODE_FLASH_SIZE) {
+		v0 = prc_16DA(v1, 4096);
+		if (v0 = 0) {
+			return(0);
+		}
+		v1 += 4096;
+		PBPOS = v1;
+	}
+}
+
+
+proc readDataBlock(address, nmBytes, a2) {
+	var v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> readDataBlock()");
+		print(dbg + "address = 0x" + #h3.address);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+
+	device.prc_id10(address, nmBytes);
+	for (v5 = 0; v5 < nmBytes; v5 += v4) {
+		v3 = prc_1511();
+		if (v3 = 0) {
+			return(0);
+		}
+		v3 = device.num_bytes_to_copy;
+		v4 = v3;
+		memcopy(buf_data[a2 + v5] = device.buf, v3);
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "bytes read = " + #i.v4);
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<- readDataBlock() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc readDataFlash() {
+	var v0, v1, v2, v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> readDataFlash()");
+	}
+
+	print("\n");
+	print("\n  [DATA FLASH]");
+	print("\n");
+	if (d_5210 = 0) {
+		v0 = getKnowDataFlashAdr(9, 1);	// DFS
+		if (v0 = 0) {
+			return(0);
+		}
+	}
+	print("\n   Reading...");
+	label0 = "Flash (Data) Reading...";
+	label1 = "Please, wait!";
+
+	PBMAX = DATA_FLASH_SIZE;
+	PBPOS = 0;
+	v2 = d_5210;
+	v4 = 0;
+	while (v4 < DATA_FLASH_SIZE) {
+		v0 = readDataBlock(v2, 4096, v4);
+		if (v0 = 0) {
+			print("\n  			 ...Failed!");
+			return(0);
+		}
+		v2 += 2048;
+		v4 += 4096;
+		PBPOS = v4;
+	}
+
+	print("\n  		      ...Completed!");
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- readDataFlash() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc verifyDataBlock(address, nmBytes, a2) {
+	var v3, v4, v5, v6;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> verifyDataBlock()");
+		print(dbg + "address = 0x" + #h3.address);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+
+	device.prc_id10(address, nmBytes);
+	v6 = mismatches_bytes;
+
+	for (v5 = 0; v5 < nmBytes; v5 += v4) {
+		v3 = prc_1511();
+		if (v3 = 0) {
+			return(0);
+		}
+		v3 = device.num_bytes_to_copy;
+		v4 = v3;
+		memcopy(buf = device.buf, v3);
+		v3 = prc_0411(a2 + v5);
+		mismatches_bytes = mismatches_bytes + v3;
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "bytes read = " + #i.v4);
+		}
+	}
+
+	if (v6 != mismatches_bytes) {
+		mismatches_blocks++;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<- verifyDataBlock() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc vrfCodeFlash() {
+	var v0, v1;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> vrfCodeFlash()");
+	}
+
+	print("\n   Verification...");
+	label0 = "Flash (Code) Verification...";
+	label1 = "Please, wait!";
+
+	v0 = prc_17F0();
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		return(0);
+	}
+	print("\n  		      ...Completed!");
+	prc_0000();
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- vrfCodeFlash() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc vrfDataFlash() {
+	var v0, v1, v2;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> vrfDataFlash()");
+	}
+
+	if (d_5210 = 0) {
+		v0 = getKnowDataFlashAdr(9, 1);	// DFS
+		if (v0 = 0) {
+			return(0);
+		}
+	}
+	print("\n   Verification...");
+	label0 = "Flash (Data) Verification...";
+	label1 = "Please, wait!";
+	PBMAX = DATA_FLASH_SIZE;
+	PBPOS = 0;
+	mismatches_bytes = 0;
+	mismatches_blocks = 0;
+	v1 = d_5210;
+	v2 = 0;
+	while (v2 < DATA_FLASH_SIZE) {
+		v0 = verifyDataBlock(v1, 4096, v2);
+		if (v0 = 0) {
+			print("\n  			 ...Failed!");
+			return(0);
+		}
+		v1 += 2048;
+		v2 += 4096;
+		PBPOS = v2;
+	}
+	print("\n  		      ...Completed!");
+	prc_0000();
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- vrfDataFlash() ");
+		pad--;
+	}
+
+	return(1);
+}
+
+
+proc prc_1D0B() {
+	var v0, v1, v2;
+
+	device.busy = 1;
+	device.Programming();
+
+	while (device.busy != 0);
+
+
+	v1 = device.fail;
+	if (v1) {
+		v2 = device.address;
+		str0 = "WRITING ADDRESS " + #h3.v2 + "h";
+		str1 = "";
+		decodeError(1);
+		label0 = str0;
+		label1 = str1;
+		return(0);
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v0 = device.frame_wait;
+		print(dbg + "frame_wait = " + #i.v0);
+	}
+
+	return(1);
+}
+
+
+proc writeCFBlockOnBlank(bckAdr, nmBytes) {
+	var v2, v3, v4;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> writeCFBlockOnBlank()");
+		print(dbg + "bckAdr = 0x" + #h3.bckAdr);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+	device.prc_id10(bckAdr, nmBytes);
+	for (v4 = 0; v4 < nmBytes; v4 += BUF_SIZE) {
+		memcopy(device.buf=buf_code[bckAdr+v4], BUF_SIZE);
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "-> proceedWriting()");
+		}
+
+		v2 = prc_1D0B();
+		if (v2 = 0) {
+			return(0);
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<- writeCFBlockOnBlank() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc writeCodeFlashOnBlank() {
+	var v0, v1;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> writeCodeFlashOnBlank ");
+	}
+	PBMAX = CODE_FLASH_SIZE;
+	PBPOS = 0;
+	v1 = 0;
+	while (v1 < CODE_FLASH_SIZE) {
+		v0 = writeCFBlockOnBlank(v1, 4096);
+		if (v0 = 0) {
+
+			if (DEBUG != 0) {
+				dbgPrefix();
+				print(dbg + "OUT <- writeCodeFlashOnBlank ");
+				pad--;
+			}
+
+			return(0);
+		}
+		v1 += 4096;
+		PBPOS = v1;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT<-FUNC( writeCodeFlashOnBlank )");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc wrMmBlocksFlash() {
+	var v0, v1, v2;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> wrMmBlocksFlash ");
+	}
+
+	print("\n");
+	print("\n  [FLASH]");
+	print("\n");
+	print("\n   Mismatches Writing...");
+	label0 = "Flash Mismatches Writing...";
+	label1 = "Please, wait!";
+	PBMAX = CODE_FLASH_SIZE;
+	PBPOS = 0;
+	d_5204 = 0;
+	mismatches_bytes = 0;
+	mismatches_blocks = 0;
+	v1 = 0;
+	while (v1 < CODE_FLASH_SIZE) {
+		v0 = hasBlockMM(v1);
+		if (v0 = 1) {
+			if (b_5203 = 0) {
+				v0 = initFP(1);
+				if (v0 = 0) {
+					return(0);
+				}
+			}
+			device.prc_id10(v1, 4096);
+			v0 = prc_1088();
+			if (v0 = 0) {
+				print("\n  			 ...Failed!");
+				print("\n ! BLOCK BLANK CHECKING ERROR !");
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					print(dbg + "<- wrMmBlocksFlash ");
+					pad--;
+				}
+				return(0);
+			}
+			v2 = device.blank;
+			if (v2 = 0) {
+				device.prc_id10(v1, 4096);
+				v0 = prc_115D();
+
+				if (v0 = 0) {
+					print("\n  			 ...Failed!");
+					print("\n ! BLOCK ERASING ERROR !");
+
+					if (DEBUG != 0) {
+						dbgPrefix();
+						print(dbg + "<- wrMmBlocksFlash ");
+						pad--;
+					}
+					return(0);
+				}
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					v0 = device.frame_wait;
+					print(dbg + "erase status frame wait = " + #i.v0);
+				}
+			}
+			v0 = writeCFBlockOnBlank(v1, 4096);
+			if (v0 = 0) {
+				print("\n  			 ...Failed!");
+				print("\n ! BLOCK WRITING ERROR !");
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					print(dbg + "<- wrMmBlocksFlash ");
+					pad--;
+				}
+				return(0);
+			}
+			if (doverify != 0) {
+				v0 = prc_16DA(v1, 4096);
+				if (v0 = 0) {
+					print("\n  			 ...Failed!");
+					print("\n ! BLOCK VERIFICATION ERROR !");
+
+					if (DEBUG != 0) {
+						dbgPrefix();
+						print(dbg + "<- wrMmBlocksFlash ");
+						pad--;
+					}
+					return(0);
+				}
+			} else {
+				blockResetMM(v1);
+			}
+			d_5204++;
+		}
+		v1 += 4096;
+		PBPOS = v1;
+	}
+
+	print("\n  		      ...Completed!");
+	if (d_5204 = 0) {
+		print("\n    NO DATA TO WRITE.");
+		print("\n    NO MISMATCHES FOUND.");
+	} else {
+		print("\n    " + #i.d_5204 + " BLOCK(S) REWRITTEN.");
+		if (doverify != 0) {
+			if (mismatches_bytes = 0) {
+				print("\n    Verification => Success!");
+			} else {
+				print("\n    " + #i.mismatches_blocks + " BLOCK(S) STILL HAVE(HAS)");
+				print("\n    MISMATCHES => " + #i.mismatches_bytes + " BYTES");
+			}
+		} else {
+			print("\n    not verified..");
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "<- wrMmBlocksFlash ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc writeDFBlockOnBlank(address, nmBytes, a2) {
+	var v3, v4;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> writeDFBlockOnBlank()");
+		print(dbg + "address = 0x" + #h3.address);
+		print(dbg + "nmBytes = 0x" + #h3.nmBytes);
+	}
+	device.prc_id10(address, nmBytes);
+	for (v4 = 0; v4 < nmBytes; v4 += BUF_SIZE) {
+		memcopy(device.buf=buf_data[a2+v4], BUF_SIZE);
+
+		v3 = prc_1D0B();
+		if (v3 = 0) {
+			return(0);
+		}
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			print(dbg + "-> proceedWriting()");
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- writeCFBlockOnBlank() ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc writeDataFlashOnBlank(a0) {
+	var v1, v2, v3, v4, v5;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "IN -> writeDataFlashOnBlank ");
+	}
+	PBMAX = DATA_FLASH_SIZE;
+	PBPOS = 0;
+	v5 = d_5210;
+	v3 = 0;
+	while (v3 < DATA_FLASH_SIZE) {
+		v1 = writeDFBlockOnBlank(v5, 4096, v3);
+		if (v1 = 0) {
+
+			if (DEBUG != 0) {
+				dbgPrefix();
+				print(dbg + "OUT <- writeDataFlashOnBlank ");
+				pad--;
+			}
+			return(0);
+		}
+		v5 += 2048;
+		v3 += 4096;
+		PBPOS = v3;
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "OUT <- writeDataFlashOnBlank()");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc prc_2455() {
+	var v0, v1;
+
+	print("\n");
+	print("\n  [FLASH]");
+	print("\n");
+	print("\n   Blank Checking...");
+	label0 = "Flash (Code) Blank Checking...";
+	label1 = "Please, wait!";
+	device.prc_id10(0, CODE_FLASH_SIZE);
+	v0 = prc_1088();
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		return(0);
+	}
+	print("\n  		      ...Completed!");
+	v1 = device.blank;
+	if (v1) {
+		print("\n    MEMORY IS BLANK.");
+		print("\n");
+	} else {
+		print("\n    MEMORY IS NOT BLANK.");
+		print("\n    ERASING IS NEEDED.");
+		print("\n");
+		print("\n   Erasing...");
+		label0 = "Flash (Code) Erasing...";
+		label1 = "Please, wait!";
+		device.prc_id10(0, CODE_FLASH_SIZE);
+		v0 = prc_115D();
+		if (v0 = 0) {
+			print("\n  			 ...Failed!");
+			return(0);
+		}
+		print("\n  		      ...Completed!");
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			v0 = device.frame_wait;
+			print(dbg + "erase status frame wait = " + #i.v0);
+		}
+	}
+
+	print("\n   Writing...");
+	label0 = "Flash (Code) Writing...";
+	label1 = "Please, wait!";
+	v0 = writeCodeFlashOnBlank();
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		return(0);
+	}
+	print("\n  		      ...Completed!");
+	return(1);
+}
+
+
+proc prc_25F0() {
+	var v0, v1;
+
+	print("\n");
+	print("\n  [DATA FLASH]");
+	print("\n");
+	if (d_5210 = 0) {
+		v0 = getKnowDataFlashAdr(9, 1);	// DFS
+		if (v0 = 0) {
+			return(0);
+		}
+	}
+	label0 = "Flash (Data) Blank Cheking...";
+	label1 = "Please, wait!";
+	print("\n   Blank Checking...");
+	device.prc_id10(d_5210, DATA_FLASH_SIZE);
+	v0 = prc_1088();
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		return(0);
+	}
+	print("\n  		      ...Completed!");
+	v1 = device.blank;
+	if (v1) {
+		print("\n    MEMORY IS BLANK.");
+		print("\n");
+	} else {
+		print("\n    MEMORY IS NOT BLANK.");
+		print("\n    ERASING IS NEEDED.");
+		print("\n");
+		label0 = "Flash (Data) Erasing...";
+		label1 = "Please, wait!";
+		print("\n   Erasing...");
+		device.prc_id10(d_5210, DATA_FLASH_SIZE);
+		v0 = prc_115D();
+		if (v0 = 0) {
+			print("\n  			 ...Failed!");
+			return(0);
+		}
+		print("\n  		      ...Completed!");
+
+		if (DEBUG != 0) {
+			dbgPrefix();
+			v0 = device.frame_wait;
+			print(dbg + "erase status frame wait = " + #i.v0);
+		}
+	}
+	print("\n   Writing...");
+	label0 = "Flash (Data) Writing...";
+	label1 = "Please, wait!";
+	v0 = writeDataFlashOnBlank(d_5210);
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		return(0);
+	}
+	print("\n  		      ...Completed!");
+	return(1);
+}
+
+
+proc wrMmBlocksDataFlash() {
+	var v0, v1, v2, v3;
+
+	if (DEBUG != 0) {
+		pad++;
+		dbgPrefix();
+		print(dbg + "-> wrMmBlocksDataFlash ");
+	}
+	print("\n");
+	print("\n  [DATA FLASH]");
+	print("\n");
+	print("\n   Mismatches Writing...");
+	label0 = "Flash (Data) Mismatches Writing...";
+	label1 = "Please, wait!";
+	PBMAX = DATA_FLASH_SIZE;
+	PBPOS = 0;
+	d_5204 = 0;
+	mismatches_bytes = 0;
+	mismatches_blocks = 0;
+	v2 = 0;
+	v3 = 0;
+	while (v3 < DATA_FLASH_SIZE) {
+		v0 = hasDataBlockMM(v3);
+		if (v0 = 1) {
+			if (b_5203 = 0) {
+				v0 = initFP(1);
+				if (v0 = 0) {
+					return(0);
+				}
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					print(dbg + "label 1");
+				}
+			}
+			if (d_5210 = 0) {
+				v0 = getKnowDataFlashAdr(9, 0);	// DFS
+				if (v0 = 0) {
+					return(0);
+				}
+			}
+			device.prc_id10(d_5210 + v2, 4096);
+			v0 = prc_1088();
+			if (v0 = 0) {
+				print("\n  			 ...Failed!");
+				print("\n ! BLOCK BLANK CHECKING ERROR !");
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					print(dbg + "<- wrMmBlocksFlash ");
+					pad--;
+				}
+				return(0);
+			}
+
+			v1 = device.blank;
+			if (v1 = 0) {
+				device.prc_id10(d_5210 + v2, 4096);
+				v0 = prc_115D();
+				if (v0 = 0) {
+					print("\n  			 ...Failed!");
+					print("\n ! BLOCK ERASING ERROR !");
+
+					if (DEBUG != 0) {
+						dbgPrefix();
+						print(dbg + "<- wrMmBlocksFlash ");
+						pad--;
+					}
+					return(0);
+				}
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					v0 = device.frame_wait;
+					print(dbg + "erase status frame wait = " + #i.v0);
+				}
+			}
+			v0 = writeDFBlockOnBlank(d_5210 + v2, 4096, v3);
+			if (v0 = 0) {
+				print("\n  			 ...Failed!");
+				print("\n ! BLOCK WRITING ERROR !");
+
+				if (DEBUG != 0) {
+					dbgPrefix();
+					print(dbg + "<- wrMmBlocksFlash ");
+					pad--;
+				}
+				return(0);
+			}
+
+			if (doverify != 0) {
+				v0 = verifyDataBlock(d_5210 + v2, 4096, v3);
+				if (v0 = 0) {
+					print("\n  			 ...Failed!");
+					print("\n ! BLOCK VERIFICATION ERROR !");
+
+					if (DEBUG != 0) {
+						dbgPrefix();
+						print(dbg + "<- wrMmBlocksFlash ");
+						pad--;
+					}
+					return(0);
+				}
+			} else {
+				dataBlockResetMM(v3);
+			}
+
+			d_5204++;
+		}
+		v2 += 2048;
+		v3 += 4096;
+		PBPOS = v3;
+	}
+
+	print("\n  		      ...Completed!");
+	if (d_5204 = 0) {
+		print("\n    NO DATA TO WRITE.");
+		print("\n    NO MISMATCHES FOUND.");
+	} else {
+		print("\n    " + #i.d_5204 + " BLOCK(S) REWRITTEN.");
+		if (doverify != 0) {
+			if (mismatches_bytes = 0) {
+				print("\n    Verification => Success!");
+			} else {
+				print("\n    " + #i.mismatches_blocks + " BLOCK(S) STILL HAVE(HAS)");
+				print("\n    MISMATCHES => " + #i.mismatches_bytes + " BYTES");
+			}
+		} else {
+			print("\n    not verified..");
+		}
+	}
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		print(dbg + "<- wrMmBlocksDataFlash ");
+		pad--;
+	}
+	return(1);
+}
+
+
+proc OnCreate() {
+}
+
+
+proc onchange() {
+}
+
+
+proc Erase_Chip() {
+	var v0;
+
+	if (DEBUG != 0) {
+		pad = 0;
+	}
+	if (WINDOW = 0) {
+		ShowWindow;
+	}
+	label0 = "%color=$00D7FF%...";
+	label1 = "%color=$00D7FF%...";
+	print("\n <CHIP ERASING>");
+	b_5203 = 0;
+	v0 = initFP(0);
+	if (v0 = 0) {
+		deinitFP(0);
+		return;
+	}
+	print("\n");
+	print("\n  Chip Erasing...");
+	label0 = "Chip Erasing...";
+	label1 = "Please, wait!";
+	v0 = prc_11FB();
+	if (v0 = 0) {
+		print("\n  			 ...Failed!");
+		deinitFP(0);
+		return;
+	}
+	print("\n  			...Success!");
+
+	if (DEBUG != 0) {
+		dbgPrefix();
+		v0 = device.frame_wait;
+		print(dbg + "erase block status frame wait = " + #i.v0);
+	}
+
+	label0 = "%color=$60FF60%OK!";
+	label1 = "%color=$60FF60%Erasing Completed.";
+	deinitFP(1);
+}
+
+
+proc Read() {
+	var v0, v1;
+
+	if (DEBUG != 0) {
+		pad = 0;
+	}
+	if (WINDOW = 0) {
+		ShowWindow;
+	}
+	label0 = "%color=$00D7FF%...";
+	label1 = "%color=$00D7FF%...";
+	print("\n <READING>");
+
+	v1 = prc_02D1();
+
+	if (v1 & 0x01) {
+		for (v0 = 0; v0 < CODE_FLASH_SIZE; v0++) {
+			buf_code[v0] = 0xFF;
+		}
+	}
+
+	if (v1 & 0x02) {
+		for (v0 = 0; v0 < DATA_FLASH_SIZE; v0++) {
+			buf_data[v0] = 0xFF;
+		}
+	}
+
+	b_5203 = 0;
+	v0 = initFP(0);
+	if (v0 = 0) {
+		deinitFP(0);
+		return;
+	}
+
+	if (v1 & 0x01) {
+		label0 = "Flash (Code) Reading...";
+		label1 = "Please, wait!";
+		print("\n");
+		print("\n  [FLASH]");
+		print("\n");
+		print("\n   Reading...");
+		v0 = prc_1695();
+		if (v0 = 0) {
+			print("\n  			 ...Failed!");
+			deinitFP(0);
+			return;
+		}
+		print("\n  		      ...Completed!");
+	}
+
+	if (v1 & 0x02) {
+		v0 = readDataFlash();
+		if (v0 = 0) {
+			deinitFP(0);
+			return;
+		}
+	}
+
+	label0 = "%color=$60FF60%OK!";
+	label1 = "%color=$60FF60%Reading Completed.";
+	deinitFP(1);
+}
+
+
+proc Verify() {
+	var v0, v1;
+
+	if (DEBUG != 0) {
+		pad = 0;
+	}
+	if (WINDOW = 0) {
+		ShowWindow;
+	}
+	label0 = "%color=$00D7FF%...";
+	label1 = "%color=$00D7FF%...";
+	print("\n <VERIFICATION>");
+	b_5203 = 0;
+	v0 = initFP(0);
+	if (v0 = 0) {
+		deinitFP(0);
+		return;
+	}
+	str2 = "";
+	v1 = prc_02D1();
+	if (v1 & 0x01) {
+		print("\n");
+		print("\n  [FLASH]");
+		print("\n");
+		v0 = vrfCodeFlash();
+		if (v0 = 0) {
+			return(0);
+		}
+		if (mismatches_bytes != 0) {
+			str2 = str2 + " FLASH => " + #i.mismatches_bytes + " BYTES";
+		}
+	}
+
+	if (v1 & 0x02) {
+		print("\n");
+		print("\n  [DATA FLASH]");
+		print("\n");
+		v0 = vrfDataFlash();
+		if (v0 = 0) {
+			return(0);
+		}
+		if (mismatches_bytes != 0) {
+			v0 = len(str2);
+			if (v0) {
+				str2 = str2 + ",";
+			}
+			str2 = str2 + " DATA FLASH => " + #i.mismatches_bytes + " BYTES";
+		}
+	}
+
+	label0 = "%color=$60FF60%";
+	label1 = "%color=$60FF60%";
+	v0 = len(str2);
+	if (v0 = 0) {
+		str2 = "No mismatches found!";
+	} else {
+		str2 = "MISMATCHES FOUND:" + str2;
+	}
+	label0 = "Verification Completed.";
+	label1 = str2;
+	deinitFP(1);
+}
+
+
+proc Write() {
+	var v0, v1, v2;
+
+	if (DEBUG != 0) {
+		pad = 0;
+	}
+	v0 = mbox("Do you really want to rewrite flash content?", 1);
+	if (v0 = 0) {
+		print("\n Writing was rejected by the user!");
+		print("\n");
+		return;
+	}
+	if (WINDOW = 0) {
+		ShowWindow;
+	}
+	label0 = "%color=$00D7FF%...";
+	label1 = "%color=$00D7FF%...";
+	print("\n <WRITING>");
+
+	b_5203 = 0;
+	v0 = initFP(0);
+	if (v0 = 0) {
+		deinitFP(0);
+		return;
+	}
+
+	v2 = 0;
+	str2 = "";
+	v1 = prc_02D1();
+
+	if (v1 & 0x01) {
+		v0 = prc_2455();
+		if (v0 = 0) {
+			deinitFP(0);
+			return;
+		}
+		if (doverify != 0) {
+			v0 = vrfCodeFlash();
+			if (v0 = 0) {
+				return(0);
+			}
+			v2 = v2 + mismatches_bytes;
+		}
+	}
+
+	if (v1 & 0x02) {
+		v0 = prc_25F0();
+		if (v0 = 0) {
+			deinitFP(0);
+			return;
+		}
+		if (doverify != 0) {
+			v0 = vrfDataFlash();
+			if (v0 = 0) {
+				return(0);
+			}
+			v2 = v2 + mismatches_bytes;
+		}
+	}
+	label0 = "%color=$60FF60%";
+	label1 = "%color=$60FF60%";
+	label0 = "Writing Completed.";
+	if (doverify != 0) {
+		if (v2) {
+			label1 = "Verification => FAILED!";
+		} else {
+			label1 = "Verification => Success!";
+		}
+	} else {
+		label1 = "not verified.";
+	}
+	deinitFP(1);
+}
+
+
+proc Write_Mismatches() {
+		var v0, v1, v2, v3;
+
+		if (DEBUG != 0) {
+			pad = 0;
+		}
+		v0 = mbox("Do you really want to rewrite mismatched blocks?", 1);
+		if (v0 = 0) {
+			print("\n Writing was rejected by the user!");
+			print("\n");
+			return;
+		}
+		if (WINDOW = 0) {
+			ShowWindow;
+		}
+
+		label0 = "%color=$00D7FF%...";
+		label1 = "%color=$00D7FF%...";
+		print("\n <WRITING MM>");
+		b_5203 = 0;
+		v2 = 0;
+		v3 = 0;
+		str2 = "";
+
+		v1 = prc_02D1();
+
+		if (v1 & 0x01) {
+			v0 = wrMmBlocksFlash();
+			if (v0 = 0) {
+				deinitFP(0);
+				return;
+			}
+			v2 = v2 + d_5204;
+			v3 = v3 + mismatches_bytes;
+		}
+
+		if (v1 & 0x02) {
+			v0 = wrMmBlocksDataFlash();
+			if (v0 = 0) {
+				deinitFP(0);
+				return;
+			}
+			v2 = v2 + d_5204;
+			v3 = v3 + mismatches_bytes;
+		}
+
+		label0 = "%color=$60FF60%";
+		label1 = "%color=$60FF60%";
+		if (v2 = 0) {
+			label0 = "NO DATA TO REWRITE!";
+			label1 = "";
+		} else {
+			label0 = "Writing Mismatches Completed.";
+			if (doverify != 0) {
+				if (v3) {
+					label1 = "Verification => FAILED!";
+				} else {
+					label1 = "Verification => Success!";
+				}
+			} else {
+				label1 = "not verified.";
+			}
+		}
+		deinitFP(1);
+}
+
+
+
+$DEVICE
+
+byte buf[BUF_SIZE];
+word num_bytes_to_copy;
+byte data_frame[20];
+byte busy;
+byte fail;
+byte b_114F_unused;
+byte stage;
+byte blank;
+word errorCode;
+byte last_byte;
+dword address;
+dword bytes;
+byte b_115D;
+word frame_wait;
+word max_byte_wait;
+word uart_bytes_received;
+word w_1164;
+byte not_blank_code;
+
+
+proc get_power_unused_0000() {
+	return(POWER & 0x1);
+}
+
+
+proc prc_id1(a0) {
+	PORTA |= 0x40;
+	PWM0 = 0;
+	POWER = a0;
+	if (a0) {
+		PORTE |= 0x4;
+		PORTE &= 0x2 ^ 255;
+		PORTE &= 0x1 ^ 255;
+	}
+}
+
+
+proc DDelay(a0) {
+	TIMER = 0;
+	while (TIMER < a0);
+}
+
+
+proc prc_id10(a0, a1) {
+	address = a0;
+	bytes = a1;
+	b_115D = 0;
+}
+
+
+proc Receive(timeout) {
+	var v1, v2, v3, v4, v5, v6, v7;
+
+	frame_wait = 0;
+	v7 = 0;
+	TIMER = 0;
+	while (1 != 0) {
+		if (TIMER > timeout) {
+			errorCode = 0x8001;
+			return(0);
+		}
+		v1 = UART_DATA;
+		if ((v1 & 0x8000) = 0) {
+			break;
+		}
+	}
+	v5 = TIMER;
+	if (v5 > frame_wait) {
+		frame_wait = v5;
+	}
+	v3 = v1 & 0xFF;
+	last_byte = v3;
+	if (v3 != V850_STX) {
+		errorCode = 0x8003;
+		return(0);
+	}
+	TIMER = 0;
+	while (1 != 0) {
+		if (TIMER > 10) {
+			errorCode = 0x8002;
+			return(0);
+		}
+		v1 = UART_DATA;
+		if ((v1 & 0x8000) = 0) {
+			break;
+		}
+	}
+	v3 = v1 & 0xFF;
+	v7 -= v3;
+	if (v3 = 0) {
+		v6 = 0x100;
+	} else {
+		v6 = v3;
+	}
+	if (v6 <= 2) {
+		v4 = 0;
+		TIMER = 0;
+		while (1 != 0) {
+			if (TIMER > 10) {
+				errorCode = 0x8002;
+				return(0);
+			}
+
+			v1 = UART_DATA;
+			if (v1 & 0x8000) {
+				continue;
+			}
+			TIMER = 0;
+			v3 = v1 & 0xFF;
+			v7 -= v3;
+			data_frame[v4] = v3;
+			v4++;
+			if (v4 = v6) {
+				break;
+			}
+		}
+
+	} else {
+		v4 = 0;
+		TIMER = 0;
+		while (1 != 0) {
+			if (TIMER > 10) {
+				errorCode = 0x8002;
+				return(0);
+			}
+
+			v1 = UART_DATA;
+			if (v1 & 0x8000) {
+				continue;
+			}
+			TIMER = 0;
+			v3 = v1 & 0xFF;
+			v7 -= v3;
+			buf[num_bytes_to_copy] = v3;
+			num_bytes_to_copy++;
+			v4++;
+			if (v4 = v6) {
+				break;
+			}
+		}
+	}
+	TIMER = 0;
+	while (1 != 0) {
+		if (TIMER > 10) {
+			errorCode = 0x8002;
+			return(0);
+		}
+		v1 = UART_DATA;
+		if ((v1 & 0x8000) = 0) {
+			break;
+		}
+	}
+	v3 = v1 & 0xFF;
+	v7 &= 0xFF;
+	if (v3 != v7) {
+		errorCode = 0x8004;
+		return(0);
+	}
+	TIMER = 0;
+	while (1 != 0) {
+		if (TIMER > 10) {
+			errorCode = 0x8002;
+			return(0);
+		}
+		v1 = UART_DATA;
+		if ((v1 & 0x8000) = 0) {
+			break;
+		}
+	}
+	v3 = v1 & 0xFF;
+	if (v3 = V850_ETX) {
+		return(v3);
+	}
+	if (v3 = V850_ETB) {
+		return(v3);
+	}
+	errorCode = 0x8005;
+	return(0);
+}
+
+
+proc Reset() {
+	UART_DATA = 0;
+	UART_DATA = 0;
+	DDelay(10);
+	UART_DATA = V850_SOH;
+	UART_DATA = 1;	// LEN
+	UART_DATA = V850_CMD_RESET;
+	UART_DATA = 0xFF;
+	UART_DATA = V850_ETX;
+}
+
+
+proc setOscFreq(d01, d02, d03, d04) {
+	var v4, sum;
+
+	busy = 1;
+	fail = 1;
+	sum = 0;
+	UART_DATA = V850_SOH;
+	UART_DATA = 5;	// LEN
+	sum -= 5;
+	UART_DATA = V850_CMD_OSCFREQSET;
+	sum -= V850_CMD_OSCFREQSET;
+	UART_DATA = d01;
+	sum -= d01;
+	UART_DATA = d02;
+	sum -= d02;
+	UART_DATA = d03;
+	sum -= d03;
+	UART_DATA = d04;
+	sum -= d04;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	v4 = Receive(100);
+	if (v4 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc setBaudRate() {
+	var v0, sum;
+
+	busy = 1;
+	fail = 1;
+	UART_DATA = V850_SOH;
+	sum = 0;
+	UART_DATA = 2;	// LEN
+	sum -= 2;
+	UART_DATA = V850_CMD_BAUDRATESET;
+	sum -= V850_CMD_BAUDRATESET;
+	UART_DATA = 0x08;	// 0x08 is 153,600
+	sum -= 0x08;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	DDelay(12);
+	UART_CR = 0x241A5800;
+	Reset();
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+
+proc getSignature() {
+	var v0, sum;
+
+	busy = 1;
+	fail = 1;
+	UART_DATA = V850_SOH;
+	sum = 0;
+	UART_DATA = 1;	// LEN
+	sum -= 1;
+	UART_DATA = V850_CMD_SIGNATURE;
+	sum -= V850_CMD_SIGNATURE;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	stage = 1;
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		busy = 0;
+		return;
+	}
+	stage = 2;
+	num_bytes_to_copy = 0;
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc BlankCheck() {
+	var v0, ea, sah, sam, eah, eam, sum;
+
+	busy = 1;
+	fail = 1;
+	blank = 0;
+	not_blank_code = 0;
+	sah = address >> 16 & 0xFF;
+	sam = address >> 8 & 0xFF;
+	if (address >= CODE_FLASH_SIZE) {
+		ea = bytes / 2 + address - 1;
+	} else {
+		ea = address + bytes - 1;
+	}
+	eah = ea >> 16 & 0xFF;
+	eam = ea >> 8 & 0xFF;
+	UART_DATA = 0x01;
+	sum = 0;
+	UART_DATA = 7;	// LEN
+	sum -= 7;
+	UART_DATA = V850_CMD_BLANK_CHECK;
+	sum -= V850_CMD_BLANK_CHECK;
+	UART_DATA = sah;
+	sum -= sah;
+	UART_DATA = sam;
+	sum -= sam;
+	UART_DATA = 0;		// sal
+	UART_DATA = eah;
+	sum -= eah;
+	UART_DATA = eam;
+	sum -= eam;
+	UART_DATA = 0xFF;	// eal
+	sum -= 0xFF;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		not_blank_code = data_frame[0];
+
+		if (data_frame[0] != 0x1B) {
+			if (data_frame[0] != 0x1D) {
+				if (data_frame[0] != 0x11) {
+					errorCode = 0x4000 | data_frame[0];
+					busy = 0;
+					return;
+				}
+			}
+		}
+	} else {
+		blank = 1;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc BlockErase() {
+	var v0, ea, sah, sam, eah, eam, sum;
+
+	busy = 1;
+	fail = 1;
+	sah = address >> 16 & 0xFF;
+	sam = address >> 8 & 0xFF;
+	if (address >= CODE_FLASH_SIZE) {
+		ea = bytes / 2 + address - 1;
+	} else {
+		ea = address + bytes - 1;
+	}
+	eah = ea >> 16 & 0xFF;
+	eam = ea >> 8 & 0xFF;
+	UART_DATA = V850_SOH;
+	sum = 0;
+	UART_DATA = 7;	// LEN
+	sum -= 7;
+	UART_DATA = V850_CMD_BLOCK_ERASE;
+	sum -= V850_CMD_BLOCK_ERASE;
+	UART_DATA = sah;
+	sum -= sah;
+	UART_DATA = sam;
+	sum -= sam;
+	UART_DATA = 0;		// sal
+	UART_DATA = eah;
+	sum -= eah;
+	UART_DATA = eam;
+	sum -= eam;
+	UART_DATA = 0xFF;	// eal
+	sum -= 0xFF;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc ChipErase() {
+	var v0, sum;
+
+	busy = 1;
+	fail = 1;
+	UART_DATA = V850_SOH;
+	sum = 0;
+	UART_DATA = 1;	// LEN
+	sum -= 1;
+	UART_DATA = V850_CMD_CHIP_ERASE;
+	sum -= V850_CMD_CHIP_ERASE;
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = V850_ETX;
+	v0 = Receive(200);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc prc_077C(a0) {
+	UART_DATA = V850_STX;
+	UART_DATA = 1;		// LEN
+	UART_DATA = V850_ST_ACK;
+	UART_DATA = 0xF9;	// sum
+	UART_DATA = a0;
+}
+
+
+proc prc_079F() {
+	var v0;
+
+	while (1 != 0) {
+		if (bytes < num_bytes_to_copy) {
+			errorCode = 0x1000;
+			bytes = 0;
+			return(0);
+		}
+		if (bytes = num_bytes_to_copy) {
+			prc_077C(V850_ETX);
+			bytes = 0;
+			return(1);
+		}
+		if (num_bytes_to_copy + 0x100 > 1024) {
+			bytes = bytes - num_bytes_to_copy;
+			return(1);
+		}
+		prc_077C(V850_ETX);
+		v0 = Receive(100);
+		if (v0 = 0) {
+			return(0);
+		}
+	}
+}
+
+
+proc Read() {
+	var v0, ea, sah, sam, eah, eam, sum;
+
+	busy = 1;
+	fail = 1;
+	errorCode = 0;
+	num_bytes_to_copy = 0;
+	if (b_115D = 0) {
+		stage = 1;
+		sah = address >> 16 & 0xFF;
+		sam = address >> 8 & 0xFF;
+		if (address >= CODE_FLASH_SIZE) {
+			ea = bytes / 2 + address - 1;
+		} else {
+			ea = address + bytes - 1;
+		}
+		eah = ea >> 16 & 0xFF;
+		eam = ea >> 8 & 0xFF;
+		UART_DATA = V850_SOH;
+		sum = 0;
+		UART_DATA = 7;	// LEN
+		sum -= 7;
+		UART_DATA = V850_CMD_READ;
+		sum -= V850_CMD_READ;
+		UART_DATA = sah;
+		sum -=  sah;
+		UART_DATA = sam;
+		sum -= sam;
+		UART_DATA = 0;		// sal
+		UART_DATA = eah;
+		sum -= eah;
+		UART_DATA = eam;
+		sum -= eam;
+		UART_DATA = 0xFF;	// eal
+		sum -= 0xFF;
+		sum &= 0xFF;
+		UART_DATA = sum;
+		UART_DATA = V850_ETX;
+		v0 = Receive(100);
+		if (v0 = 0) {
+			busy = 0;
+			return;
+		}
+		if (data_frame[0] != V850_ST_ACK) {
+			errorCode = 0x4000 | data_frame[0];
+			busy = 0;
+			return;
+		}
+		stage = 2;
+		w_1164 = 0;
+		v0 = Receive(100);
+		if (v0 = 0) {
+			busy = 0;
+			return;
+		}
+		b_115D = 1;
+	}
+	stage = 3;
+	v0 = prc_079F();
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc prc_09A5(a0, a1) {
+	var v2, v3, sum;
+
+	v3 = a0 & 0xFF;
+	UART_DATA = V850_STX;
+	sum = 0;
+	UART_DATA = v3;
+	sum -= v3;
+	while (a0) {
+		v2 = buf[num_bytes_to_copy];
+		UART_DATA = v2;
+		sum -= v2;
+		num_bytes_to_copy = num_bytes_to_copy + 1;
+		a0--;
+	}
+	sum &= 0xFF;
+	UART_DATA = sum;
+	UART_DATA = a1;
+	v2 = Receive(100);
+	if (v2 = 0) {
+		return(0);
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		return(0);
+	}
+	if (data_frame[1] != 6) {	//!!!!!!!!
+		errorCode = 0x2000 | data_frame[1];
+		return(0);
+	}
+	return(1);
+}
+
+
+proc prc_0A42(a0) {
+	var v1, v2;
+
+	v1 = prc_09A5(a0, V850_ETX);
+	if (v1 = 0) {
+		return(0);
+	}
+	v1 = Receive(100);
+	if (v1 = 0) {
+		return(0);
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		return(0);
+	}
+	return(1);
+}
+
+
+proc prc_0A94() {
+	var v0, v1;
+
+	num_bytes_to_copy = 0;
+	while (1 != 0) {
+		if (num_bytes_to_copy = 1024)
+			return(1);
+
+		v1 = 0x400 - num_bytes_to_copy;
+		if (v1 > 0x100)
+			v1 = 0x100;
+
+		if (v1 >= bytes) {
+			v0 = prc_0A42(bytes);
+
+			if (v0 = 0)
+				return(0);
+
+			bytes = 0;
+			b_115D = 0;
+
+			return(1);
+		} else {
+			v0 = prc_09A5(v1, V850_ETB);
+			if (v0 = 0)
+				return(0);
+
+			bytes = bytes - v1;
+		}
+	}
+}
+
+
+proc Programming() {
+	var v0, v1, sah, sam, eah, eam, sum, v7;
+
+	busy = 1;
+	fail = 1;
+	stage = 1;
+	errorCode = 0;
+	if (b_115D = 0) {
+		sah = address >> 16 & 0xFF;
+		sam = address >> 8 & 0xFF;
+		if (address >= CODE_FLASH_SIZE) {
+			v1 = bytes / 2 + address - 1;
+		} else {
+			v1 = address + bytes - 1;
+		}
+		eah = v1 >> 16 & 0xFF;
+		eam = v1 >> 8 & 0xFF;
+		UART_DATA = V850_SOH;
+		sum = 0;
+		UART_DATA = 7;	// LEN
+		sum -= 7;
+		UART_DATA = V850_CMD_PROGRAMMING;
+		sum -= V850_CMD_PROGRAMMING;
+		UART_DATA = sah;
+		sum -= sah;
+		UART_DATA = sam;
+		sum -= sam;
+		UART_DATA = 0;		// sal
+		UART_DATA = eah;
+		sum -= eah;
+		UART_DATA = eam;
+		sum -= eam;
+		UART_DATA = 0xFF;	// eal
+		sum -= 0xFF;
+		sum &= 0xFF;
+		UART_DATA = sum;
+		UART_DATA = V850_ETX;
+		v0 = Receive(100);
+		if (v0 = 0) {
+			busy = 0;
+			return;
+		}
+		if (data_frame[0] != V850_ST_ACK) {
+			errorCode = 0x4000 | data_frame[0];
+			busy = 0;
+			return;
+		}
+		b_115D = 1;
+	}
+	stage = 2;
+	v0 = prc_0A94();
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc startFlashProg() {
+	var v0, v1;
+
+	busy = 1;
+	TIMER_ENABLE = 1;
+	fail = 1;
+	errorCode = 0;
+	UART_CR = 0x24182580;
+	for (;;) {
+		v0 = UART_DATA;
+		if (v0 = 0x8000)
+			break;
+	}
+
+	PORTB &= 0x8 ^ 255;
+	DDelay(50);
+	PORTB |= 0x20;
+	DDelay(50);
+	PORTB |= 0x8;
+	DDelay(200);
+	Reset();
+	v0 = Receive(100);
+	if (v0 = 0) {
+		busy = 0;
+		return;
+	}
+	if (data_frame[0] != V850_ST_ACK) {
+		errorCode = 0x4000 | data_frame[0];
+		busy = 0;
+		return;
+	}
+	fail = 0;
+	busy = 0;
+}
+
+
+proc prc_id0() {
+	busy = 1;
+	PORTB &= 0x8 ^ 255;
+	UART_CR = 0;
+	TIMER_ENABLE = 0;
+	busy = 0;
+}
