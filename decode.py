@@ -4,9 +4,11 @@ import des
 
 class Decoder:
     most_popular_sn = [1, 777, 19, 35, 45, 55, 325, 2048, 49339]
+    detected_sn = []
     sn_list = None
     ignore_check = False
     bruteforce = False
+    brute_all = False
 
     @classmethod
     def touch(cls, sn_list):
@@ -22,11 +24,14 @@ class Decoder:
                 yield sn
 
             if cls.bruteforce:
-                # all possible odd
-                for sn in (sn for sn in range(1, 0x10000, 2) if sn not in cls.most_popular_sn):
+                # all possible
+                for sn in (sn for sn in range(1, 0x10000) if sn not in cls.most_popular_sn):
                     yield sn
-                # others
-                for sn in (sn for sn in range(0, 0x10000, 2) if sn not in cls.most_popular_sn):
+
+            if cls.brute_all:
+                # do unpack
+                cls.brute_all = False
+                for sn in cls.detected_sn:
                     yield sn
 
     @classmethod
@@ -72,6 +77,7 @@ class Decoder:
         if len(_pad) != 32:
             print('## data size is not a multiple of 32, the file is probably corrupted')
 
+        cls.detected_sn = []
         for sn in cls.serial_numbers():
             print(f'try sn: {sn:>5} \r', end='')
             r = decode_cal(_data, crc, sn)
@@ -131,8 +137,8 @@ def get_sn():
 def decode_ipr_v1(data, crc, sn):
     # Закодирован
     # v1
+    length = len(data)
     tbl1 = (0x11, 0x22, 0x33, 0x14, 0x25, 0x36, 0x17, 0x28, 0x39, 0x1A, 0x2B, 0x3C, 0x1D, 0x2E, 0x3F, 0x35)
-    datalen = len(data)
     data2 = list(data)
     crcpad = [0] * 64
     crcpad[0] = crc >> 8
@@ -142,13 +148,13 @@ def decode_ipr_v1(data, crc, sn):
     # sn = get_sn()
     x = tbl1[sn & 0x0F]
 
-    data2[datalen] ^= data2[0]
-    data2[datalen+1] ^= data2[1]
+    data2[length] ^= data2[0]
+    data2[length+1] ^= data2[1]
 
-    z = (sn >> 8) ^ sn ^ data2[datalen] ^ data2[datalen+1]
+    z = (sn >> 8) ^ sn ^ data2[length] ^ data2[length+1]
 
     buf = [0] * 64
-    for p in range(0, datalen, 64):
+    for p in range(0, length, 64):
 
         for i in range(64):
             buf[i ^ (x & 0xFF)] = data2[p + i] ^ (z & 0xFF)
@@ -251,20 +257,43 @@ def decode_ipr_v2_fastcheck(data, _crc, sn, offset=0):
 
 
 def decode_cal(data, crc, sn):
+    length = len(data)
     tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
     x = tbl1[sn & 0x0F]
     z = (x * ((sn >> 8) ^ sn) & 0xFF) ^ (crc >> 8) ^ (crc & 0xFF)
     z &= 0xFF
     buf = [0] * 32
     data2 = bytearray(data)
-    for p in range(0, len(data2), 32):
+    for p in range(0, length, 32):
         for i in range(32):
             buf[i ^ x] = data2[p + i] ^ z
             z = (z + 0x55) & 0xFF
+
+        if p == 0:
+            # быстрая проверка
+            length = len(data)
+            on_show = buf[1] << 8 | buf[0]
+            on_apply = buf[3] << 8 | buf[2]
+            on_change = buf[5] << 8 | buf[4]
+            unused = buf[7] << 8 | buf[6]
+            if ((on_show == 0xFFFF or on_show < length) and (on_apply == 0xFFFF or on_apply < length) and
+                    (on_change == 0xFFFF or on_change < length) and (unused == 0xFFFF or unused < length)):
+                # Похоже на допустимые значения
+                pass
+            else:
+                # Недопустимые значения, дальше можно не распаковывать
+                return None
+
         for i in range(32):
             data2[p + i] = buf[i]
 
     if crc == crc16_1021(data2):
+
+        if Decoder.brute_all:
+            Decoder.detected_sn.append(sn)
+            print(f'matching sn: {sn}')
+            return None
+
         return data2
     else:
         return data2 if Decoder.ignore_check else None

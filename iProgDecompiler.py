@@ -53,10 +53,12 @@ def get_args():
     parser.add_argument('-sn', nargs='+', type=int, metavar='серийник',
                         help='Использовать эти серийники для раскодирования. '
                              f'Если не указано, пробуем следующие номера: {popular_sn}')
-    parser.add_argument('--ignore-check',
-                        help='Игнорировать проверку расшифровки и попытаться сохранить как есть', action='store_true')
-    parser.add_argument('--bruteforce',
-                        help='Поиск sn перебором (возможны ложные срабатывания)', action='store_true')
+    parser.add_argument('--ignore-check', action='store_true',
+                        help='Игнорировать проверку расшифровки и попытаться сохранить как есть')
+    parser.add_argument('--bruteforce', action='store_true',
+                        help='Поиск sn перебором (возможны ложные срабатывания)')
+    parser.add_argument('--brute-all', action='store_true',
+                        help='Поиск всех подходящих sn (только для .cal)')
 
     if sys.argv[1:]:
         args = parser.parse_args()
@@ -73,6 +75,7 @@ def main():
         Decoder.touch(args.sn)
     Decoder.ignore_check = args.ignore_check
     Decoder.bruteforce = args.bruteforce
+    Decoder.brute_all = args.brute_all
     decompile(args.filename)
 
 

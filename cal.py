@@ -119,7 +119,8 @@ class DisassemblerCAL:
             return f'str{v}'
         elif t == 'c':
             # ui field
-            return self.presets['ui'][v]
+            control = self.presets['ui'].get(v)
+            return control or f'unknown_{v}'
         if t == 'B':
             # byte
             return f'0x{v:02x}'
