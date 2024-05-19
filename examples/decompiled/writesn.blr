@@ -1,0 +1,141 @@
+Menu
+    Write,Write,0,F4
+EndMenu
+
+Window(caption="";width=250;height=120;align=h)
+{
+    Label(caption="%bold=1%fcolor=$0000ff%size=10%fname=Tahoma%Please disconnect all adapters!";name=0;left=24;top=10;width=0;value=0)
+	Digit(caption="Serial number:"; name=digit_sn; left=110; top=40; width=100; value=1)
+	Button(caption="Change SN"; left=25; top=80; width=200; height=25; proc=Write)
+}
+
+$HOST
+
+//	   sn	hash				hashX
+//			h ^ l = 0x1234		h ^ l = 0x0831
+//	    1	0x69EB7BDF			0xEEA1E690
+//	   19	0x23b9318D			0x4A354204
+//	   45	0x5C464E72			0xB4CABCFB
+//	  777	0x79A96B9D			0x6A8162B0
+
+
+string str0;
+word unused;
+
+proc decodesn(sn_hash){
+	// hash -> sn
+	// преобразовывает хеш серийника в серийник
+	var sn, i;
+	
+	if ((sn_hash >> 16 ^ sn_hash) & 0xFFFF = 0x1234) {
+		sn = 0;
+		for (i = 0; i < 16; i++){
+			sn = sn << 1;
+			if ((sn_hash & 1) = 0) {
+				sn = sn ^ 0x8021;
+			}
+			sn_hash = sn_hash >> 1;
+		}
+		sn = sn & 0xFFFF;
+	} else {
+		print("\nInvalid sn_hash");
+		sn = 0xFFFF;
+	}
+	return(sn);
+}
+
+proc encodesn(sn){
+	// sn -> hash
+	// преобразовывает серийник в хеш серийника
+	var hash, i;
+	
+	hash = 0;
+	for (i = 0; i < 16; i++){
+		hash = hash << 1;
+		if (sn & 1 != 0) {
+			sn = sn ^ 0x8021;
+		} else {
+			hash = hash | 0x01;
+		}
+		sn = sn >> 1;
+	}
+	hash = ((hash ^ 0x1234) << 16) | hash;
+	return(hash);
+}
+
+proc hash2x(hash){
+	// hash -> hashX
+	// преобразовывает хеш серийника в формат для смены через SERIAL = new_serial
+	var k, hashX;
+	
+	k = 0x50723067;	// 'Pr0g'
+	hashX = ((hash << 25) | (hash >> (32-25))) ^ k;
+	return(hashX);
+}
+
+proc ShowInfo(){
+	var tmp;
+	tmp = DEVICE_SERIAL;
+	print("\nCurrent SN: "+#i.tmp);
+	device.getSN();
+	tmp = device.sn;
+	print("\n  Flash ID: 0x"+#h4.tmp);
+}
+
+proc OnCreate(){
+	ShowInfo();
+}
+
+proc Write(){
+	var tmp, sn, hash, hashX;
+
+	if (WINDOW = 0) ShowWindow;
+
+	ShowInfo();
+
+	sn = digit_sn;
+	if (sn > 65536){
+		sn = sn & 0xFFFF;
+		digit_sn = sn;
+		print("\nSerial number must be in the range 0-65535");
+	}
+	hash = encodesn(sn);
+	hashX = hash2x(hash);
+	print("\n");
+	print("\nDesired SN: " + #i.sn);
+//	print("\n      hash: 0x" + #h4.hash);
+//	print("\n     hashX: 0x" + #h4.hashX);
+//	tmp = decodesn(hash);
+//	print("\n  hash->sn: " + #i.tmp);
+	
+	str0 = "Confirm set serial number to " + #i.sn;
+	tmp = mbox(str0, 1);
+	if (tmp = 0){
+		print("\n");
+		print("\nAborted by user");
+	} else {
+		device.sn = hashX;
+		device.setSN();
+		// Тут iprog отвалится
+
+		print("\n");
+		print("\nCompleted. Disconnect iprog+ and connect again");
+
+		tmp = device.sn;	// <- и тут будет ошибка
+		//print("\nЭтот код никогда не выполнится. new sn:" + #i.n);
+	}
+}
+
+$DEVICE
+
+dword sn;
+
+proc setSN(){
+	SERIAL = sn;		// OUT 255, sn
+						// после out 255 iprog уйдёт в бесконечный цикл
+	sn = SERIAL;		// этот код уже не работает
+}
+
+proc getSN(){
+	sn = SERIAL;
+}
