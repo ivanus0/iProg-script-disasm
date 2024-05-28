@@ -8,25 +8,33 @@ class Decoder:
     sn_list = None
     ignore_check = False
     bruteforce = False
+    newsn = None
     brute_all = False
 
     @classmethod
-    def touch(cls, sn_list):
-        cls.sn_list = sn_list
+    def init_args(cls, args):
+        cls.bruteforce = args.bruteforce
+        if cls.bruteforce:
+            cls.sn_list = [range(65536)]
+        else:
+            cls.sn_list = args.sn
+
+        if cls.sn_list is None:
+            cls.sn_list = cls.most_popular_sn
+
+        cls.ignore_check = args.ignore_check
+        cls.brute_all = args.brute_all
+        cls.newsn = args.newsn
 
     @classmethod
     def serial_numbers(cls):
         if cls.sn_list:
-            for sn in cls.sn_list:
-                yield sn
-        else:
-            for sn in cls.most_popular_sn:
-                yield sn
-
-            if cls.bruteforce:
-                # all possible
-                for sn in (sn for sn in range(1, 0x10000) if sn not in cls.most_popular_sn):
-                    yield sn
+            for snl in cls.sn_list:
+                if isinstance(snl, int):
+                    yield snl
+                else:
+                    for sn in snl:
+                        yield sn
 
             if cls.brute_all:
                 # do unpack
@@ -88,6 +96,11 @@ class Decoder:
         print("## bad bytecode or unknown encoding")
         return None
 
+    @classmethod
+    def encode_cal_bytecode(cls, data, sn):
+        data = encode_cal(data, sn)
+        return '\n'.join(data[p:p + 32].hex().upper() for p in range(0, len(data), 32)) + '\n'
+
 
 def crc16(data):
     crc = 0xFFFF
@@ -111,27 +124,6 @@ def crc16_1021(data):
             else:
                 crc = crc << 1
     return crc & 0xFFFF
-
-
-def get_sn():
-    sn_encoded = 0x69EB7BDF  # sn == 1
-    # sn_encoded = 0x23b9318D     # sn == 19
-    # sn_encoded = 0x0f6bd109     # sn == 777 ?? не сходится...
-    # sn_encoded = 0x79a96b9d     # sn == 777
-
-    # sn_encoded = 0x0f6b
-    # sn_encoded = ((sn_encoded ^ 0x1234) << 16) | sn_encoded
-    if (sn_encoded >> 0x10 ^ sn_encoded) & 0xFFFF == 0x1234:
-        result = sn_encoded & 0xFFFF
-        for n in range(0x10):
-            if (sn_encoded & 1) == 0:
-                result = (result << 1) ^ 0x8021
-            else:
-                result <<= 1
-            sn_encoded >>= 1
-        return result & 0xFFFF
-    else:
-        return 0xFFFF
 
 
 def decode_ipr_v1(data, crc, sn):
@@ -297,3 +289,21 @@ def decode_cal(data, crc, sn):
         return data2
     else:
         return data2 if Decoder.ignore_check else None
+
+
+def encode_cal(binary, sn):
+    length = len(binary)
+    crc = crc16_1021(binary)
+    tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
+    x = tbl1[sn & 0x0F]
+    z = ((x * ((sn >> 8) ^ sn)) ^ (crc >> 8) ^ crc) & 0xFF
+    data2 = bytearray(length + 32)                  # additional 32-byte chunk for crc and garbage
+    for p in range(0, length, 32):
+        for i in range(32):
+            data2[p + i] = binary[p+(i ^ x)] ^ z
+            z = (z + 0x55) & 0xFF
+
+    data2[length] = crc >> 8
+    data2[length+1] = crc & 0xFF
+    # data2[length + 2:] = random.randbytes(32-2)     # unnecessarily
+    return data2

@@ -28,8 +28,12 @@ def decompile_cal(cal_filename):
 
     decrypted_cal = cal.get_data()
     if decrypted_cal:
-        with open(os.path.splitext(cal_filename)[0] + '_decrypted.bin', 'wb') as f:
-            f.write(decrypted_cal)
+        # with open(os.path.splitext(cal_filename)[0] + '_decrypted.bin', 'wb') as f:
+        #     f.write(decrypted_cal)
+        sn = Decoder.newsn
+        if sn is not None:
+            with open(f'{os.path.splitext(cal_filename)[0]}_{sn:05}.cal', 'w') as f:
+                f.write(Decoder.encode_cal_bytecode(decrypted_cal, sn))
 
 
 def decompile(source_filename):
@@ -44,21 +48,47 @@ def decompile(source_filename):
 
 
 def get_args():
-    # filename must be the first argument, otherwise is conflicts with -sn <last num>
+
+    def check_serial(sn):
+        if sn.isdigit():
+            v = int(sn)
+            if 0 <= v <= 65535:
+                return v
+            else:
+                raise argparse.ArgumentTypeError(f'недопустимый серийник {v}, должно быть от 0 до 65535')
+        raise argparse.ArgumentTypeError(f'неверный серийник "{sn}", должно быть число')
+
+    def check_serials(s: str):
+        result = []
+        for r in s.split(','):
+            mm = r.split('-', maxsplit=1)
+            f = check_serial(mm[0])
+            if len(mm) == 2:
+                t = check_serial(mm[1])
+                if f > t:
+                    f, t = t, f
+                if f != t:
+                    result.append(range(f, t+1))
+                    continue
+            result.append(f)
+        return result
+
     parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg',
-                                     usage='%(prog)s filename [--bruteforce] | [-sn серийник [серийник ...]]',
+                                     # usage='%(prog)s filename [--bruteforce] | [-sn серийник [серийник ...]]',
                                      add_help=False)
     parser.add_argument('filename', help='Файл скрипта .ipr или файл калькулятора .cal')
-    popular_sn = ' '.join(f'{sn}' for sn in Decoder.most_popular_sn)
-    parser.add_argument('-sn', nargs='+', type=int, metavar='серийник',
-                        help='Использовать эти серийники для раскодирования. '
+    popular_sn = ','.join(f'{sn}' for sn in Decoder.most_popular_sn)
+    parser.add_argument('-sn', type=check_serials, metavar='серийники',
+                        help='Использовать эти серийники для раскодирования. Через "," или диапазоны через "-". '
                              f'Если не указано, пробуем следующие номера: {popular_sn}')
-    parser.add_argument('--ignore-check', action='store_true',
-                        help='Игнорировать проверку расшифровки и попытаться сохранить как есть')
     parser.add_argument('--bruteforce', action='store_true',
-                        help='Поиск sn перебором (возможны ложные срабатывания)')
+                        help='Поиск sn перебором (возможны ложные срабатывания). Тоже что и -sn 0-65535')
+    parser.add_argument('--newsn', type=check_serial, metavar='серийник',
+                        help='Сохранить с новым серийником (только для .cal)')
     parser.add_argument('--brute-all', action='store_true',
                         help='Поиск всех подходящих sn (только для .cal)')
+    parser.add_argument('--ignore-check', action='store_true',
+                        help='Игнорировать проверку расшифровки и попытаться сохранить как есть')
 
     if sys.argv[1:]:
         args = parser.parse_args()
@@ -71,11 +101,7 @@ def get_args():
 def main():
     args = get_args()
     print(f'Processing: {args.filename}')
-    if args.sn is not None:
-        Decoder.touch(args.sn)
-    Decoder.ignore_check = args.ignore_check
-    Decoder.bruteforce = args.bruteforce
-    Decoder.brute_all = args.brute_all
+    Decoder.init_args(args)
     decompile(args.filename)
 
 
