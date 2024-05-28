@@ -12,7 +12,7 @@ Window(caption="";width=250;height=120;align=h)
 $HOST
 
 //	   sn	hash				hashX
-//			h ^ l = 0x1234		h ^ l = 0x0831
+//	     	h ^ l = 0x1234		h ^ l = 0x0831
 //	    1	0x69EB7BDF			0xEEA1E690
 //	   19	0x23b9318D			0x4A354204
 //	   45	0x5C464E72			0xB4CABCFB

@@ -401,6 +401,7 @@ class IPR:
     def __init__(self, filename):
         self.host_listing = None
         self.device_listing = None
+        self.extra = {}
         self.ui = {}
 
         self.b_menu_start = 0
@@ -907,7 +908,8 @@ class IPR:
         code.extend(self.host_listing.disassemble(DisassemblerIPR, {
             'type': 'host',
             'ui': self.ui,
-            'device_labels': []
+            'device_labels': [],
+            'procs': self.extra.get('eph')
         }))
 
         # DEVICE
@@ -948,7 +950,7 @@ class IPR:
             code.extend(self.device_listing.disassemble(DisassemblerIPR, {
                 'type': 'device',
                 'labels': self.host_listing.dis.presets['device_labels'],
-                'procs': []   # todo: add from command line
+                'procs': self.extra.get('epd')
             }))
         else:
             code.append('// invalid crc bytecode')
@@ -961,7 +963,9 @@ class IPR:
         code.append('')
         self.script_listing = code
 
-    def decompile(self):
+    def decompile(self, extra=None):
+        if extra:
+            self.extra = extra
         self.host_listing = Listing()
         self.device_listing = Listing()
         try:

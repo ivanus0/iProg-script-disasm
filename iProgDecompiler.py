@@ -6,9 +6,9 @@ from ipr import IPR
 from cal import CAL
 
 
-def decompile_ipr(ipr_filename):
+def decompile_ipr(ipr_filename, extra):
     ipr = IPR(ipr_filename)
-    ipr.decompile()
+    ipr.decompile(extra)
     with open(os.path.splitext(ipr_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
         f.write('\n'.join(ipr.get_lst()))
 
@@ -18,7 +18,7 @@ def decompile_ipr(ipr_filename):
             f.write(decrypted_ipr)
 
 
-def decompile_cal(cal_filename):
+def decompile_cal(cal_filename, extra):
     cal = CAL(cal_filename)
     cal.decompile()
     cal_lst = cal.get_lst()
@@ -30,19 +30,26 @@ def decompile_cal(cal_filename):
     if decrypted_cal:
         # with open(os.path.splitext(cal_filename)[0] + '_decrypted.bin', 'wb') as f:
         #     f.write(decrypted_cal)
-        sn = Decoder.newsn
+        sn = extra.get('newsn')
         if sn is not None:
             with open(f'{os.path.splitext(cal_filename)[0]}_{sn:05}.cal', 'w') as f:
                 f.write(Decoder.encode_cal_bytecode(decrypted_cal, sn))
 
 
-def decompile(source_filename):
+def decompile(source_filename, args):
     if os.path.isfile(source_filename):
         file_ext = os.path.splitext(source_filename)[1]
         if file_ext == '.ipr':
-            decompile_ipr(source_filename)
+            extra = {
+                'eph': args.eph,
+                'epd': args.epd,
+            }
+            decompile_ipr(source_filename, extra)
         elif file_ext == '.cal':
-            decompile_cal(source_filename)
+            extra = {
+                'newsn': args.newsn,
+            }
+            decompile_cal(source_filename, extra)
     else:
         print('No such file')
 
@@ -89,6 +96,10 @@ def get_args():
                         help='Поиск всех подходящих sn (только для .cal)')
     parser.add_argument('--ignore-check', action='store_true',
                         help='Игнорировать проверку расшифровки и попытаться сохранить как есть')
+    parser.add_argument('--eph', type=lambda a: (int(i, 0) for i in a.split(',')),
+                        help='host ep')
+    parser.add_argument('--epd', type=lambda a: (int(i, 0) for i in a.split(',')),
+                        help='device ep')
 
     if sys.argv[1:]:
         args = parser.parse_args()
@@ -102,7 +113,7 @@ def main():
     args = get_args()
     print(f'Processing: {args.filename}')
     Decoder.init_args(args)
-    decompile(args.filename)
+    decompile(args.filename, args)
 
 
 main()

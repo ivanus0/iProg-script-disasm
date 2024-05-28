@@ -657,6 +657,7 @@ class DisassemblerCAL:
 class CAL:
     def __init__(self, filename):
         self.listing = None
+        self.extra = {}
         self.ui = {}
         self.window_listing = []
         self.script_listing = []
@@ -791,7 +792,9 @@ class CAL:
         code.append('')
         self.window_listing = code
 
-    def decompile(self):
+    def decompile(self, extra=None):
+        if extra:
+            self.extra = extra
         if self.stream.len == 0:
             return
 

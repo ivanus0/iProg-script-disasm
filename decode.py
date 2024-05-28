@@ -8,7 +8,6 @@ class Decoder:
     sn_list = None
     ignore_check = False
     bruteforce = False
-    newsn = None
     brute_all = False
 
     @classmethod
@@ -24,7 +23,6 @@ class Decoder:
 
         cls.ignore_check = args.ignore_check
         cls.brute_all = args.brute_all
-        cls.newsn = args.newsn
 
     @classmethod
     def serial_numbers(cls):

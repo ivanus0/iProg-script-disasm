@@ -258,7 +258,9 @@ class Listing:
                 self.set_comment(ea, comment)
 
         # Mark known procs
-        for ea in presets.get('procs', []):
+        for ea in presets.get('procs') or []:
+            if not self.get_label(ea):
+                self.set_label(ea, f'unused_{ea:04X}')
             self.set_flag_proc(ea)
 
         # дизассемблируем ф-ии начиная с точек входа и далее углубляемся по мере вызова
