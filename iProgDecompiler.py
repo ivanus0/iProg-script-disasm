@@ -20,7 +20,7 @@ def decompile_ipr(ipr_filename, extra):
 
 def decompile_cal(cal_filename, extra):
     cal = CAL(cal_filename)
-    cal.decompile()
+    cal.decompile(extra)
     cal_lst = cal.get_lst()
     if cal_lst:
         with open(os.path.splitext(cal_filename)[0] + '.lst', 'w', encoding='cp1251') as f:
@@ -47,6 +47,7 @@ def decompile(source_filename, args):
             decompile_ipr(source_filename, extra)
         elif file_ext == '.cal':
             extra = {
+                'eph': args.eph,
                 'newsn': args.newsn,
             }
             decompile_cal(source_filename, extra)
@@ -81,7 +82,7 @@ def get_args():
         return result
 
     parser = argparse.ArgumentParser(description='Дизассемблер скриптов и калькуляторов iProg',
-                                     # usage='%(prog)s filename [--bruteforce] | [-sn серийник [серийник ...]]',
+                                     usage='%(prog)s filename [--bruteforce] | [-sn серийники]',
                                      add_help=False)
     parser.add_argument('filename', help='Файл скрипта .ipr или файл калькулятора .cal')
     popular_sn = ','.join(f'{sn}' for sn in Decoder.most_popular_sn)
@@ -97,7 +98,7 @@ def get_args():
     parser.add_argument('--ignore-check', action='store_true',
                         help='Игнорировать проверку расшифровки и попытаться сохранить как есть')
     parser.add_argument('--eph', type=lambda a: (int(i, 0) for i in a.split(',')),
-                        help='host ep')
+                        help='host ep (and for .cal)')
     parser.add_argument('--epd', type=lambda a: (int(i, 0) for i in a.split(',')),
                         help='device ep')
 

@@ -837,7 +837,8 @@ class CAL:
             bytecode.mem_offset = bytecode.file_offset
             self.listing.set_mem(bytecode)
             code.extend(self.listing.disassemble(DisassemblerCAL, {
-                'ui': self.ui
+                'ui': self.ui,
+                'procs': self.extra.get('eph')
             }))
             self.script_listing = code
         except (SyntaxError, MemoryNotDefined) as e:
