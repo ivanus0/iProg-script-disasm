@@ -91,6 +91,8 @@ def get_args():
                              f'Если не указано, пробуем следующие номера: {popular_sn}')
     parser.add_argument('--bruteforce', action='store_true',
                         help='Поиск sn перебором (возможны ложные срабатывания). Тоже что и -sn 0-65535')
+    parser.add_argument('--brute-quick', action='store_true',
+                        help='Быстрая проверка (возможны ложные срабатывания)')
     parser.add_argument('--newsn', type=check_serial, metavar='серийник',
                         help='Сохранить с новым серийником (только для .cal)')
     parser.add_argument('--brute-all', action='store_true',

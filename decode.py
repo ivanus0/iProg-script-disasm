@@ -8,6 +8,7 @@ class Decoder:
     sn_list = None
     ignore_check = False
     bruteforce = False
+    brute_quick = False
     brute_all = False
 
     @classmethod
@@ -22,6 +23,7 @@ class Decoder:
             cls.sn_list = cls.most_popular_sn
 
         cls.ignore_check = args.ignore_check
+        cls.brute_quick = args.brute_quick
         cls.brute_all = args.brute_all
 
     @classmethod
@@ -54,8 +56,9 @@ class Decoder:
                 print(f"## device bytecode is encoded (sn: {sn})")
                 return r
 
-            # if not decode_ipr_v2_fastcheck(data, crc, sn, 0):
-            #     continue
+            if cls.brute_quick:
+                if not decode_ipr_v2_quick_check(data, crc, sn, offset=0):
+                    continue
 
             r = decode_ipr_v2(data, crc, sn)
             if r is not None:
@@ -86,7 +89,7 @@ class Decoder:
         cls.detected_sn = []
         for sn in cls.serial_numbers():
             print(f'try sn: {sn:>5} \r', end='')
-            r = decode_cal(_data, crc, sn)
+            r = decode_cal(_data, crc, sn, cls.brute_quick)
             if r is not None:
                 print(f"## calculator bytecode is encoded (sn: {sn})")
                 return r
@@ -201,7 +204,7 @@ def decode_ipr_v2(data, crc, sn, sub_key=0xA5A5A5A5):
         return decoded if Decoder.ignore_check else None
 
 
-def decode_ipr_v2_fastcheck(data, _crc, sn, offset=0):
+def decode_ipr_v2_quick_check(data, _crc, sn, sub_key=0xA5A5A5A5, offset=0):
     # Search pattern.
     # PUSHR  xx         5A xx
     # ENTER  yy, zz     5F yz
@@ -222,7 +225,7 @@ def decode_ipr_v2_fastcheck(data, _crc, sn, offset=0):
     k = get_xyz(sn)
 
     # DES ECB
-    key = struct.pack('>II', k, k ^ 0xA5A5A5A5)
+    key = struct.pack('>II', k, k ^ sub_key)
 
     dkeys = tuple(des.derive_keys(key))[::-1]
     tmp = []
@@ -246,7 +249,7 @@ def decode_ipr_v2_fastcheck(data, _crc, sn, offset=0):
         return False
 
 
-def decode_cal(data, crc, sn):
+def decode_cal(data, crc, sn, quick_check=False):
     length = len(data)
     tbl1 = (0x1F, 0x0E, 0x1D, 0x0C, 0x1B, 0x0A, 0x19, 0x08, 0x17, 0x06, 0x15, 0x04, 0x13, 0x02, 0x11, 0x05)
     x = tbl1[sn & 0x0F]
@@ -259,9 +262,8 @@ def decode_cal(data, crc, sn):
             buf[i ^ x] = data2[p + i] ^ z
             z = (z + 0x55) & 0xFF
 
-        if p == 0:
+        if quick_check and p == 0:
             # быстрая проверка
-            length = len(data)
             on_show = buf[1] << 8 | buf[0]
             on_apply = buf[3] << 8 | buf[2]
             on_change = buf[5] << 8 | buf[4]
@@ -274,8 +276,7 @@ def decode_cal(data, crc, sn):
                 # Недопустимые значения, дальше можно не распаковывать
                 return None
 
-        for i in range(32):
-            data2[p + i] = buf[i]
+        data2[p:p+32] = buf
 
     if crc == crc16_1021(data2):
 

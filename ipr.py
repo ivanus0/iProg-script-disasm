@@ -629,6 +629,7 @@ class IPR:
                     width = self.stream.read_word_be()
                     height = self.stream.read_word_be()
                     name = f'picture_{name_id:04X}'
+                    # Если есть повтор, то безымянный компонент
                     self.ui[name_id] = name
                     f = {
                         'caption': f'"{caption}"',
